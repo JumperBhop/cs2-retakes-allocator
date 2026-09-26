@@ -46,6 +46,7 @@ public sealed class PlantTimerController
     public void Stop()
     {
         _deadline.Stop();
+        _timeoutMessageUntil = 0;
         _timer?.Kill();
         _timer = null;
     }
@@ -79,6 +80,7 @@ public sealed class PlantTimerController
         {
             rules.TerminateRound(0.1f, RoundEndReason.CTsWin);
             _timeoutMessageUntil = Server.CurrentTime + 2;
+            _plugin.RequestHudRefresh();
             Server.PrintToChatAll($"{PluginInfo.MessagePrefix}Plant time expired — CTs win.");
         }
         catch (Exception error)

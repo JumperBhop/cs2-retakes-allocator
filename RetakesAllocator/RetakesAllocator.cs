@@ -737,6 +737,8 @@ public class RetakesAllocator : BasePlugin
         }
     }
 
+    public void RequestHudRefresh() => _hudRefresh.Reset();
+
     public void OnTick()
     {
         if (_unloading) return;
