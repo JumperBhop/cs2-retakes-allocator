@@ -1,13 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net8.0</TargetFramework>
+        <TargetFramework>net10.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="CounterStrikeSharp.API" Version="1.0.315" />
+        <PackageReference Include="CounterStrikeSharp.API" Version="1.0.375" ExcludeAssets="runtime" />
         <PackageReference Include="Microsoft.EntityFrameworkCore" Version="7.0.14"/>
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="7.0.14">
             <PrivateAssets>all</PrivateAssets>
@@ -16,11 +16,7 @@
         <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="7.0.14"/>
         <PackageReference Include="MySqlConnector" Version="2.3.4" />
         <PackageReference Include="Pomelo.EntityFrameworkCore.MySql" Version="7.0.0" />
-        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.7" />
+        <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.13" />
     </ItemGroup>
-
-    <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition=" '$(CopyPath)' != '' and $(Configuration) != 'Release' ">
-        <Exec Command="powershell Copy-Item -Recurse -Force &quot;$(TargetDir)*&quot; &quot;$(CopyPath)&quot; "/>
-    </Target>
 
 </Project>

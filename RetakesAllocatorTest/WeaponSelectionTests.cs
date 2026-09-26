@@ -10,6 +10,10 @@ namespace RetakesAllocatorTest;
 
 public class WeaponSelectionTests : BaseTestFixture
 {
+    // Preserve upstream coverage of the optional legacy immediate-allocation mode.
+    [SetUp]
+    public void EnableLegacyImmediateSelection() =>
+        Configs.GetConfigData().ApplySelectionsOnNextSpawnOnly = false;
     [Test]
     public async Task SetWeaponPreferenceDirectly()
     {

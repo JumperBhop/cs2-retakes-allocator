@@ -11,9 +11,12 @@ public class GlobalSetup
     [OneTimeSetUp]
     public void Setup()
     {
+        var english = System.Globalization.CultureInfo.GetCultureInfo("en");
+        System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = english;
+        System.Globalization.CultureInfo.CurrentUICulture = english;
         Configs.Load(".", true);
         Queries.Migrate();
-        Translator.Initialize(new JsonStringLocalizer("../../../../RetakesAllocator/lang"));
+        Translator.Initialize(new JsonStringLocalizer(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../RetakesAllocator/lang"))));
     }
 
     [OneTimeTearDown]

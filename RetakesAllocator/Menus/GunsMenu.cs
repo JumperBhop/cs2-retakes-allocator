@@ -18,6 +18,13 @@ public class GunsMenu : AbstractBaseMenu
         Helpers.WriteNewlineDelimited(message, player.PrintToChat);
     }
 
+    public override void Reset()
+    {
+        foreach (var timer in _menuTimeoutTimers.Values) timer.Kill();
+        _menuTimeoutTimers.Clear();
+        base.Reset();
+    }
+
     public override void OpenMenu(CCSPlayerController player)
     {
         if (Helpers.GetSteamId(player) == 0)
@@ -38,6 +45,12 @@ public class GunsMenu : AbstractBaseMenu
 
     private void OnMenuTimeout(CCSPlayerController player)
     {
+        if (!Helpers.PlayerIsValid(player))
+        {
+            PlayersInMenu.Remove(player);
+            _menuTimeoutTimers.Remove(player);
+            return;
+        }
         Print(player, Translator.Instance["menu.timeout", MenuTimeout]);
 
         PlayersInMenu.Remove(player);
@@ -54,7 +67,7 @@ public class GunsMenu : AbstractBaseMenu
             existingTimer.Kill();
         }
 
-        _menuTimeoutTimers[player] = new Timer(MenuTimeout, () => OnMenuTimeout(player));
+        _menuTimeoutTimers[player] = new Timer(MenuTimeout, () => OnMenuTimeout(player), CounterStrikeSharp.API.Modules.Timers.TimerFlags.STOP_ON_MAPCHANGE);
     }
 
     private void OnMenuComplete(CCSPlayerController player)

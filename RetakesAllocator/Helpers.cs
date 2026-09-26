@@ -12,10 +12,16 @@ namespace RetakesAllocator;
 
 public static class Helpers
 {
-    public static bool PlayerIsValid(CCSPlayerController? player)
+    public static bool PlayerIsValid([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] CCSPlayerController? player)
     {
         return player is not null && player.IsValid;
     }
+
+    public static bool PlayerCanReceiveWeapons(CCSPlayerController? player) =>
+        player is { IsValid: true, PawnIsAlive: true, IsHLTV: false } &&
+        player.Connected == PlayerConnectedState.Connected &&
+        player.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist &&
+        player.PlayerPawn.Value is { IsValid: true, ItemServices: not null };
 
     public static void WriteNewlineDelimited(string message, Action<string> writer)
     {
@@ -202,88 +208,4 @@ public static class Helpers
 
     public static bool IsVip(CCSPlayerController player) => AdminManager.PlayerHasPermissions(player, "@css/vip");
 
-    public static async Task<bool> DownloadMissingFiles()
-    {
-        if (!Configs.GetConfigData().AutoUpdateSignatures)
-        {
-            return false;
-        }
-        string baseFolderPath = Configs.Shared.Module!;
-
-        string gamedataFileName = "gamedata/RetakesAllocator_gamedata.json";
-        string gamedataGithubUrl = "https://raw.githubusercontent.com/yonilerner/cs2-retakes-allocator/main/Resources/RetakesAllocator_gamedata.json";
-        string gamedataFilePath = Path.Combine(baseFolderPath, gamedataFileName);
-        string gamedataDirectoryPath = Path.GetDirectoryName(gamedataFilePath)!;
-        
-        return await CheckAndDownloadFile(gamedataFilePath, gamedataGithubUrl, gamedataDirectoryPath);
-    }
-
-    private static async Task<bool> CheckAndDownloadFile(string filePath, string githubUrl, string directoryPath)
-    {
-        if (!File.Exists(filePath))
-        {
-            if (!Directory.Exists(directoryPath))
-            {
-                Directory.CreateDirectory(directoryPath);
-            }
-            await DownloadFileFromGithub(githubUrl, filePath);
-            return true;
-        }
-
-        bool isFileDifferent = await IsFileDifferent(filePath, githubUrl);
-        if (isFileDifferent)
-        {
-            File.Delete(filePath);
-            await DownloadFileFromGithub(githubUrl, filePath);
-            return true;
-        }
-
-        return false;
-    }
-
-    private static async Task<bool> IsFileDifferent(string localFilePath, string githubUrl)
-    {
-        try
-        {
-            byte[] localFileBytes = await File.ReadAllBytesAsync(localFilePath);
-            string localFileHash = GetFileHash(localFileBytes);
-
-            using (HttpClient client = new HttpClient())
-            {
-                byte[] githubFileBytes = await client.GetByteArrayAsync(githubUrl);
-                string githubFileHash = GetFileHash(githubFileBytes);
-                return localFileHash != githubFileHash;
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"Error comparing files: {ex.Message}");
-            return false;
-        }
-    }
-
-    private static string GetFileHash(byte[] fileBytes)
-    {
-        using (var md5 = System.Security.Cryptography.MD5.Create())
-        {
-            byte[] hashBytes = md5.ComputeHash(fileBytes);
-            return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-        }
-    }
-
-    private static async Task DownloadFileFromGithub(string url, string destinationPath)
-    {
-        using (HttpClient client = new HttpClient())
-        {
-            try
-            {
-                byte[] fileBytes = await client.GetByteArrayAsync(url);
-                await File.WriteAllBytesAsync(destinationPath, fileBytes);
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"Error downloading file: {ex.Message}");
-            }
-        }
-    }
 }

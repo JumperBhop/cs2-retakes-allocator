@@ -19,6 +19,13 @@ public class VoteMenu : AbstractBaseMenu
         _voteManager = voteManager;
     }
 
+    public override void Reset()
+    {
+        foreach (var timer in _menuTimeoutTimers.Values) timer.Kill();
+        _menuTimeoutTimers.Clear();
+        base.Reset();
+    }
+
     public override void OpenMenu(CCSPlayerController player)
     {
         PlayersInMenu.Add(player);
@@ -35,7 +42,7 @@ public class VoteMenu : AbstractBaseMenu
         MenuManager.OpenChatMenu(player, menu);
         CreateMenuTimeoutTimer(player);
     }
-    
+
     public void GatherAndHandleVotes()
     {
         _voteManager.CompleteVote();
@@ -48,6 +55,12 @@ public class VoteMenu : AbstractBaseMenu
 
     private void OnMenuTimeout(CCSPlayerController player)
     {
+        if (!Helpers.PlayerIsValid(player))
+        {
+            PlayersInMenu.Remove(player);
+            _menuTimeoutTimers.Remove(player);
+            return;
+        }
         Helpers.WriteNewlineDelimited(
             Translator.Instance["menu.timeout", MenuTimeout],
             player.PrintToChat
@@ -66,7 +79,7 @@ public class VoteMenu : AbstractBaseMenu
             _menuTimeoutTimers.Remove(player);
         }
 
-        _menuTimeoutTimers[player] = new Timer(MenuTimeout, () => OnMenuTimeout(player));
+        _menuTimeoutTimers[player] = new Timer(MenuTimeout, () => OnMenuTimeout(player), CounterStrikeSharp.API.Modules.Timers.TimerFlags.STOP_ON_MAPCHANGE);
     }
 
     private void OnMenuComplete(CCSPlayerController player)

@@ -1,157 +1,77 @@
-using System.Runtime.InteropServices;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
-using RetakesAllocatorCore.Config;
-using RetakesAllocatorCore;
 using CounterStrikeSharp.API.Modules.Memory.DynamicFunctions;
-using System.Text.Json;
-// ReSharper disable InconsistentNaming
+using CounterStrikeSharp.API.Modules.Utils;
+using RetakesAllocatorCore;
 
 namespace RetakesAllocator;
 
-public class CustomGameData
+/// <summary>
+/// Resolves the optional buy-menu hook exclusively against the installed CSSharp
+/// gamedata. No plugin-local signatures, background updates or GiveNamedItem2.
+/// </summary>
+public sealed class CustomGameData : IDisposable
 {
-    private static readonly Dictionary<string, Dictionary<OSPlatform, string>> _customGameData = new();
-    private MemoryFunctionVoid<IntPtr, string, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr>? GiveNamedItem2;
-    public MemoryFunctionWithReturn<CCSPlayer_ItemServices, CEconItemView, AcquireMethod, NativeObject, AcquireResult>? CCSPlayer_ItemServices_CanAcquireFunc;
-    public MemoryFunctionWithReturn<int, string, CCSWeaponBaseVData>? GetCSWeaponDataFromKeyFunc;
+    // Exact ABI used by CounterStrikeSharp 375 VirtualFunctions.
+    private MemoryFunctionWithReturn<CCSPlayer_ItemServices, CEconItemView, AcquireMethod, IntPtr, AcquireResult>? _canAcquire;
+    public MemoryFunctionWithReturn<int, string, CCSWeaponBaseVData>? GetCSWeaponDataFromKeyFunc { get; private set; }
+    private FunctionReference? _callbackReference;
+    private Func<DynamicHook, HookResult>? _callback;
+    private NativeHookRegistration? _registration;
+    public bool IsHooked => _registration?.IsAttached == true;
 
-    public CustomGameData()
+    public bool TryHook(Func<DynamicHook, HookResult> handler)
     {
-        LoadCustomGameData();
-    }
-
-    public void LoadCustomGameData()
-    {
-        if (Configs.Shared.Module == null)
-        {
-            Log.Error("Module path is null. Returning without loading custom game data.");
-            return;
-        }
-        var jsonFilePath = Path.Combine(Configs.Shared.Module, "gamedata/RetakesAllocator_gamedata.json");
-        if (File.Exists(jsonFilePath))
-        {
-            try
-            {
-                var jsonData = File.ReadAllText(jsonFilePath);
-                var jsonDocument = JsonDocument.Parse(jsonData);
-            
-                foreach (var element in jsonDocument.RootElement.EnumerateObject())
-                {
-                    string key = element.Name;
-
-                    var platformData = new Dictionary<OSPlatform, string>();
-
-                    if (element.Value.TryGetProperty("signatures", out var signatures))
-                    {
-                        if (signatures.TryGetProperty("windows", out var windows))
-                        {
-                            platformData[OSPlatform.Windows] = windows.GetString()!;
-                        }
-
-                        if (signatures.TryGetProperty("linux", out var linux))
-                        {
-                            platformData[OSPlatform.Linux] = linux.GetString()!;
-                        }
-                    }
-                    _customGameData[key] = platformData;
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"Error loading custom game data: {ex.Message}");
-            }
-        }
-        else
-        {
-            Log.Debug($"JSON file does not exist at path: {jsonFilePath}. Returning without loading custom game data.");
-        }
-        
+        if (_registration != null) throw new InvalidOperationException("Hook registration is immutable until unload.");
         try
         {
-            GiveNamedItem2 = new(GetCustomGameDataKey("GiveNamedItem2"));
-        }
-        catch
-        {
-            // GiveNamedItem2 failing to load shouldnt crash because we will try to fallback to GiveNamedItem
-        }
-        GetCSWeaponDataFromKeyFunc = new(GetCustomGameDataKey("GetCSWeaponDataFromKey"));
-        CCSPlayer_ItemServices_CanAcquireFunc = new(GetCustomGameDataKey("CCSPlayer_ItemServices_CanAcquire"));
-    }
-
-    private string GetCustomGameDataKey(string key)
-    {
-        if (!_customGameData.TryGetValue(key, out var customGameData))
-        {
-            try
+            _canAcquire = new(GameData.GetSignature("CCSPlayer_ItemServices_CanAcquire"));
+            GetCSWeaponDataFromKeyFunc = new(GameData.GetSignature("GetCSWeaponDataFromKey"));
+            // CSSharp's constructors can swallow resolution errors and return Handle=0.
+            if (_canAcquire.Handle == IntPtr.Zero || GetCSWeaponDataFromKeyFunc.Handle == IntPtr.Zero)
             {
-                var defaultGameData = GameData.GetSignature(key);
-                Log.Info($"Using default gamedata for {key} because no custom data was found.");
-                return defaultGameData;
-            }
-            catch
-            {
-                // ignored
+                Log.Warn("Buy-menu hook disabled: CSSharp gamedata did not resolve CanAcquire/GetCSWeaponDataFromKey. !guns and round allocation remain available.");
+                return false;
             }
 
-            throw new Exception($"Invalid key {key}");
+            _callback = handler;
+            _callbackReference = FunctionReference.Create(_callback);
+            var callbackPointer = _callbackReference.GetFunctionPointer();
+            var functionHandle = _canAcquire.Handle;
+            _registration = new NativeHookRegistration(functionHandle,
+                () => NativeAPI.HookFunction(functionHandle, callbackPointer, false),
+                () => NativeAPI.UnhookFunction(functionHandle, callbackPointer, false),
+                ReleaseCallback);
+            _registration.Attach();
+            Log.Info("CanAcquire hook attached using CounterStrikeSharp gamedata (API 375 ABI).");
+            return true;
         }
-
-        OSPlatform platform;
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        catch (Exception ex)
         {
-            platform = OSPlatform.Linux;
+            Log.Warn($"Buy-menu hook unavailable: {ex.Message}. !guns and round allocation remain available.");
+            Dispose();
+            return false;
         }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            platform = OSPlatform.Windows;
-        }
-        else
-        {
-            throw new Exception("Unsupported platform");
-        }
-
-        return customGameData.TryGetValue(platform, out var customData)
-            ? customData
-            : throw new Exception($"Missing custom data for {key} on {platform}");
     }
 
-    public bool PlayerGiveNamedItemEnabled()
+    private void ReleaseCallback()
     {
-        return GiveNamedItem2 != null;
+        if (_callbackReference != null) FunctionReference.Remove(_callbackReference.Identifier);
+        _callbackReference = null;
+        _callback = null;
     }
 
-    public void PlayerGiveNamedItem(CCSPlayerController player, string item)
+    public void Dispose()
     {
-        if (!player.PlayerPawn.IsValid) return;
-        if (player.PlayerPawn.Value == null) return;
-        if (!player.PlayerPawn.Value.IsValid) return;
-        if (player.PlayerPawn.Value.ItemServices == null) return;
-
-        // Log.Debug("Using custom function for GiveNamedItem2");
-        GiveNamedItem2?.Invoke(player.PlayerPawn.Value.ItemServices.Handle, item, 0, 0, 0, 0, 0, 0);
+        try
+        {
+            _registration?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            // FunctionReference's permanent registry keeps the native thunk AND
+            // managed delegate alive. Releasing it here would risk a GC callback crash.
+            Log.Error($"Could not detach CanAcquire hook; callback retained, no rehook attempted. Restart server: {ex.Message}");
+        }
     }
 }
-
-// Possible results for CSPlayer::CanAcquire
-public enum AcquireResult
-{
-    Allowed = 0,
-    InvalidItem,
-    AlreadyOwned,
-    AlreadyPurchased,
-    ReachedGrenadeTypeLimit,
-    ReachedGrenadeTotalLimit,
-    NotAllowedByTeam,
-    NotAllowedByMap,
-    NotAllowedByMode,
-    NotAllowedForPurchase,
-    NotAllowedByProhibition,
-};
-
-// Possible results for CSPlayer::CanAcquire
-public enum AcquireMethod
-{
-    PickUp = 0,
-    Buy,
-};

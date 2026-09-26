@@ -232,8 +232,9 @@ public record ConfigData
     public bool MigrateOnStartup { get; set; } = true;
     public bool ResetStateOnGameRestart { get; set; } = true;
     public bool AllowAllocationAfterFreezeTime { get; set; } = true;
+    public bool ApplySelectionsOnNextSpawnOnly { get; set; } = true;
     public bool UseOnTickFeatures { get; set; } = true;
-    public bool CapabilityWeaponPaints { get; set; } = true;
+    public bool CapabilityWeaponPaints { get; set; } = false; // Legacy: ignored; CSS GiveNamedItem is used.
     public bool EnableRoundTypeAnnouncement { get; set; } = true;
     public bool EnableRoundTypeAnnouncementCenter { get; set; } = false;
     public bool EnableBombSiteAnnouncementCenter { get; set; } = false;
@@ -275,7 +276,7 @@ public record ConfigData
 
     public DatabaseProvider DatabaseProvider { get; set; } = DatabaseProvider.Sqlite;
     public string DatabaseConnectionString { get; set; } = "Data Source=data.db; Pooling=False";
-    public bool AutoUpdateSignatures { get; set; } = true;
+    public bool AutoUpdateSignatures { get; set; } = false; // Legacy: ignored; CSS owns gamedata.
 
     public IList<string> Validate()
     {

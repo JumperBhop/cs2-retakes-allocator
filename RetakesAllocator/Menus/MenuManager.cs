@@ -1,4 +1,4 @@
-﻿using CounterStrikeSharp.API.Core;
+using CounterStrikeSharp.API.Core;
 using RetakesAllocator.Managers;
 using RetakesAllocator.Menus.Interfaces;
 using RetakesAllocatorCore;
@@ -18,6 +18,11 @@ public class AllocatorMenuManager
         {MenuType.Guns, new GunsMenu()},
         {MenuType.NextRoundVote, new VoteMenu(new NextRoundVoteManager())},
     };
+
+    public void Reset()
+    {
+        foreach (var menu in _menus.Values) menu.Reset();
+    }
 
     private bool MenuAlreadyOpenCheck(CCSPlayerController player)
     {

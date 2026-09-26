@@ -9,3 +9,5 @@ riderModule.iml
 .vs-code/
 data.db
 *.sln
+artifacts/
+**/TestResults/
