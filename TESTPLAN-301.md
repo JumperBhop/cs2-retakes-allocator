@@ -11,10 +11,10 @@ Voraussetzungen: Linux-Testserver/Docker, CSS375 mit vollständiger GameData, Re
 
 ## 2. Menü und Eingabe
 
-- !guns und /guns als CT und T öffnen: Center-HUD mit Primary Weapon, Secondary Weapon, Close und Footer by Jumper, kein nummernbasiertes Waffen-Chatmenü.
+- !guns und /guns als CT und T öffnen: Center-HUD mit genau Primary Weapon und Secondary Weapon sowie Footer by Jumper, kein nummernbasiertes Waffen-Chatmenü.
 - W und S jeweils fünf Sekunden halten: genau eine Bewegung je Tastendruck. Taste loslassen und erneut drücken: nächste Bewegung.
 - W halten und E separat drücken: genau eine Bestätigung. E halten: keine wiederholten DB-Schreibvorgänge.
-- R aus Untermenü: Hauptmenü; R im Hauptmenü: geschlossen. E auf Close ebenfalls schließen.
+- R aus Untermenü: Hauptmenü; R im Hauptmenü: geschlossen. Kein Close-/Loadout-/Pistol-Round-/HalfBuy-/AWP-Kategorieeintrag.
 - A/D im Primary-Menü: CT/T wechseln. Erstes/letztes Element und leere Liste prüfen; kein Indexfehler.
 - In jedem Untermenü Footer und gespeicherte Auswahl prüfen. Eine Auswahl bestätigen, Menü erneut öffnen: gespeichert. Kein zusätzlicher Save-Button.
 
@@ -55,3 +55,9 @@ Voraussetzungen: Linux-Testserver/Docker, CSS375 mit vollständiger GameData, Re
 - Keine Netchan-High-Water-Mark-/excessive-CPU-/Überlauffehler. Menü-HUD maximal vier Updates pro Sekunde/Spieler, keine wiederholten Anzeigen für geschlossene Menüs.
 - Spectators erhalten niemals Spawn-Ausrüstung. Doppelte AllocateEvents dürfen nicht zweimal Waffen verteilen.
 - Server-Logs, CSS-Version, Pluginliste und Testfälle mit Abweichungen aufbewahren. Dieser Ingame-Test ist nach automatisierten Build-/Datenbanktests weiterhin erforderlich.
+
+## Zusatzprüfung 301.1
+- Menü 30 Sekunden ohne Eingabe offen lassen: kein sekündliches Blinken, große Schrift und Footer sichtbar. Danach schnell mit W/S navigieren; gehaltene Tasten bleiben entprellt.
+- Hauptmenü enthält exakt zwei Einträge. Untermenü zeigt jeweils drei große Waffenzeilen, Auswahl scrollt durch alle erlaubten Waffen.
+- Während geöffnetem Menü einen echten mp_restartgame-Neustart durchführen: Neustart funktioniert. Danach Menü schließen und mehrere normale Retake-Runden spielen; keine falschen Neustarts oder hängenbleibenden HUD-Flags.
+- Round-/Map-Cleanup und Unload mit offenem Menü bzw. aktivem Countdown prüfen. Keine alte Anzeige und keine zurückgelassene eigene GameRestart-Änderung.

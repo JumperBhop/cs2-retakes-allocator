@@ -1,3 +1,16 @@
+# Jumper RetakesAllocator – Änderungen
+
+## Update 301.1 – Menü und HUD
+
+- Hauptmenü enthält ausschließlich Primary Weapon und Secondary Weapon. R schließt bzw. geht zurück; E speichert wie bisher automatisch.
+- Größere Schrift, deutlich hervorgehobene Auswahl, drei große Waffenzeilen pro Untermenü. Footer by Jumper bleibt sichtbar. Keine Loadout-/Pistol-/HalfBuy-/AWP-Kategorien.
+- Alte dekorierte Sprachschlüssel sowie Menü-GIFs in allen Sprachdateien entfernt.
+- Identische HUD-Nachrichten werden nur alle zwei Sekunden erneuert, mit fünf Sekunden Anzeigedauer. Geänderte Inhalte bleiben auf vier Aktualisierungen pro Sekunde begrenzt.
+- Bekannte HTML-HUD-Flicker-Korrektur nach Poggu/girlglock direkt eingebaut: temporär GameRestart während unserer Anzeige, nur bei vergangenem RestartRoundTime. Tatsächliche Neustart-Timer werden nicht verändert. Fremde Flag-Änderungen/neue Restart-Deadlines werden respektiert; eigene Änderungen beim Schließen, Map-/Round-Cleanup und Unload zurückgenommen.
+- Neue Regressionstests für genau zwei Hauptpunkte, große HTML-Zeilen, Escaping, Nachrichten-Cache und die Flag-Lebensdauer bei echten geplanten Neustarts.
+- Kein neues Menüpaket, keine neue Datenbankmigration und kein zusätzlicher Native-Hook.
+- Betroffene neue Dateien: GunMenuView.cs, HudContentCache.cs, HtmlHudRestartLease.cs, HtmlHudStability.cs und MenuHudRegressionTests.cs. Weitere Änderungen in AdvancedGunMenu.cs, RetakesAllocator.cs, lang/*.json, Versions-/Paketdateien und Dokumentation.
+
 # Änderungen – Version 301
 
 Basis: Yoni Lerners RetakesAllocator v2.4.2 plus Jumper-CSS375-Absturzreparatur. Version im Plugin: **301**; Assembly: **301.0.0**. Linux-Paket: cs2-retakes-allocator-301-linux-x64.zip.

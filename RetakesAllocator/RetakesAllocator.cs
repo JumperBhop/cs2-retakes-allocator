@@ -50,6 +50,8 @@ public class RetakesAllocator : BasePlugin
     private bool _retakeActive;
     private bool _freezeEnded;
     private readonly HudRefreshGate _hudRefresh = new();
+    private readonly HudContentCache _hudContents = new();
+    private readonly HtmlHudStability _hudStability = new();
     private float _siteStartAt;
     private float _siteEndAt;
     private readonly Dictionary<ulong, CCSPlayerController> _hudRecipients = new();
@@ -743,6 +745,7 @@ public class RetakesAllocator : BasePlugin
     {
         if (_unloading) return;
         _advancedGunMenu.OnTick(); // Reads buttons only; never sends a HUD message.
+        _hudStability.Update(_advancedGunMenu.HasOpenMenus || _hudRecipients.Count > 0);
         if (!_hudRefresh.ShouldRender(Server.CurrentTime)) return;
         var countdown = _plantTimer.Render();
         var players = Utilities.GetPlayers().Where(p => Helpers.PlayerIsValid(p) && !p.IsBot && !p.IsHLTV).ToList();
@@ -760,16 +763,23 @@ public class RetakesAllocator : BasePlugin
                 html = $"<b>Bombsite {WebUtility.HtmlEncode(_bombsite)}</b><br>T: {countt} | CT: {countct}";
             if (html != null)
             {
-                player.PrintToCenterHtml(html, 1); // At most four HUD messages/second, one owner per player.
+                if (_hudContents.ShouldSend(player.SteamID, html, Server.CurrentTime))
+                    player.PrintToCenterHtml(html, HudContentCache.DisplaySeconds);
                 _hudRecipients[player.SteamID] = player;
             }
-            else if (_hudRecipients.Remove(player.SteamID)) player.PrintToCenterHtml("", 0);
+            else if (_hudRecipients.Remove(player.SteamID))
+            {
+                _hudContents.Remove(player.SteamID);
+                player.PrintToCenterHtml("", 0);
+            }
         }
         foreach (var id in _hudRecipients.Keys.Except(players.Select(p => p.SteamID)).ToArray()) _hudRecipients.Remove(id);
     }
 
     private void ResetRoundHud()
     {
+        _hudStability.Reset();
+        _hudContents.Reset();
         _plantTimer?.Stop();
         _retakeActive = false;
         _freezeEnded = false;
@@ -851,6 +861,7 @@ public class RetakesAllocator : BasePlugin
         {
             _advancedGunMenu.Close(player, false);
             _hudRecipients.Remove(player.SteamID);
+            _hudContents.Remove(player.SteamID);
         }
         return HookResult.Continue;
     }

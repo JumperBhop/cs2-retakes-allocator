@@ -1,4 +1,4 @@
-# Jumper RetakesAllocator 301 – Installation
+# Jumper RetakesAllocator 301.1 – Installation
 
 Ziel: Linux x64 / Docker, CounterStrikeSharp **1.0.375 vollständig mit GameData**, B3none Retakes **3.0.2**. Der bestehende Allocator wurde weiterentwickelt; Plugin-Ordner und DLL heißen weiterhin **RetakesAllocator**. Kein anderes Menüpaket nötig.
 
@@ -35,7 +35,7 @@ Diese Werte sind bereits die Standardwerte, wenn die Schlüssel fehlen. PlantTim
 
 ## Bedienung und Waffen
 
-**!guns**, **/guns** und **css_guns** öffnen das ursprüngliche Advanced Gun Menu im Center-HUD. W/S navigiert, E bestätigt, R geht zurück bzw. schließt das Hauptmenü. A/D wechselt im Primary-Untermenü zwischen CT und T. Gedrückt gehaltene Tasten lösen dieselbe Aktion nicht erneut aus. Die Hauptpunkte sind Primary Weapon, Secondary Weapon und Close. Die Auswahl wird angezeigt, mit E automatisch gespeichert und erst beim nächsten regulären Retakes-AllocateEvent ausgerüstet. In allen Menüseiten steht der konfigurierte Footer, standardmäßig **by Jumper**.
+**!guns**, **/guns** und **css_guns** öffnen das ursprüngliche Advanced Gun Menu im Center-HUD. W/S navigiert, E bestätigt, R geht zurück bzw. schließt das Hauptmenü. A/D wechselt im Primary-Untermenü zwischen CT und T. Gedrückt gehaltene Tasten lösen dieselbe Aktion nicht erneut aus. Die Hauptpunkte sind ausschließlich Primary Weapon und Secondary Weapon. Die Auswahl wird angezeigt, mit E automatisch gespeichert und erst beim nächsten regulären Retakes-AllocateEvent ausgerüstet. In allen Menüseiten steht der konfigurierte Footer, standardmäßig **by Jumper**.
 
 Primary enthält die erlaubten FullBuy-/HalfBuy-Waffen und gegebenenfalls erlaubte Preferred-Waffen. Die ursprünglichen Pistol-/HalfBuy-/FullBuy-Rundentypen bleiben erhalten. Für die ausgewählte FullBuy-Primary in jeder Runde setzt wie bisher RoundTypeSelection auf Random und RoundTypePercentages auf Pistol=0, HalfBuy=0, FullBuy=100. Halbkäufe verwenden die gespeicherte HalfBuy-Primary.
 
@@ -45,7 +45,7 @@ Es wurden **keine Tabellen/Spalten/Migrationen geändert**. Die gemeinsame Pisto
 
 ## Timer, HUD und Kompatibilität
 
-Der Plant-Timer startet nach **round_freeze_end**, ausschließlich in einer durch das Retakes-AllocateEvent aktivierten Runde mit lebenden CTs und Ts, außerhalb des Warmups. Er endet beim **erfolgreichen** bomb_planted, nicht schon bei bomb_beginplant. Nach 10 Sekunden ohne erfolgreichen Plant wird über **CCSGameRules.TerminateRound(0.1f, CTsWin)** beendet. Plant-Timer, Countdown und Bombsite-HUD werden bei Rundenende, Mapwechsel und Unload beendet. Countdown und geöffnetes Waffenmenü teilen sich eine einzige HUD-Nachricht; die Bombsite-Anzeige wird dabei unterdrückt. HUD-Ausgaben sind auf vier Aktualisierungen pro Sekunde und Spieler begrenzt. Zum Beenden wird einmal geleert.
+Der Plant-Timer startet nach **round_freeze_end**, ausschließlich in einer durch das Retakes-AllocateEvent aktivierten Runde mit lebenden CTs und Ts, außerhalb des Warmups. Er endet beim **erfolgreichen** bomb_planted, nicht schon bei bomb_beginplant. Nach 10 Sekunden ohne erfolgreichen Plant wird über **CCSGameRules.TerminateRound(0.1f, CTsWin)** beendet. Plant-Timer, Countdown und Bombsite-HUD werden bei Rundenende, Mapwechsel und Unload beendet. Countdown und geöffnetes Waffenmenü teilen sich eine einzige HUD-Nachricht; die Bombsite-Anzeige wird dabei unterdrückt. Eingabeänderungen werden maximal viermal pro Sekunde angezeigt. Gleiche Inhalte werden nur alle zwei Sekunden bei fünf Sekunden Anzeigedauer erneuert. Die größere Anzeige enthält drei Waffen pro sichtbarem Ausschnitt. Die bekannte CS2-HTML-Flicker-Korrektur hält GameRestart nur während unserer HUD-Anzeige, solange RestartRoundTime bereits vergangen ist. RestartRoundTime wird niemals verändert; ein neu geplanter Neustart und ein fremder bereits gesetzter Flag bleiben unangetastet. Unsere Flag-Änderung wird beim Schließen bzw. Cleanup zurückgenommen. Zum Beenden wird einmal geleert.
 
 Die Native-Hook-Reparatur aus dem vorherigen Fork bleibt enthalten: kanonische CSS375-Signaturen, Null-Handle-Prüfung und explizite Callback-Referenz bis zum erfolgreichen Unhook. AutoUpdateSignatures und CapabilityWeaponPaints bleiben ohne Wirkung; alte Plugin-GameData wird ignoriert. Der ungeprüfte GiveNamedItem2-Pfad bleibt entfernt. Besondere Skin-Übernahme für teamfremde Waffen wird nicht garantiert.
 
@@ -56,3 +56,5 @@ Der Build verwendet .NET 10, CounterStrikeSharp.API 1.0.375 und RetakesPluginSha
 Release-Build und automatisierte Regressionstests werden lokal und im Linux-CI ausgeführt. Linux-CI testet zusätzlich gegen MySQL 8 eine vorhandene UserSettings-Tabelle mit alten Präferenzen und die gemeinsame Auswahl ohne Schemaänderung. Das ist kein Starttest in einem echten CS2-Prozess. Menüdarstellung, Native-Hooks, Grenzfälle des Plant-Events und die Netzkanal-Stabilität sind auf eurem Server anhand des Testplans zu bestätigen. Es wurden keine Änderungen auf eurem Server vorgenommen.
 
 Quellen: [CSS375](https://github.com/roflmuffin/CounterStrikeSharp/releases/tag/v1.0.375), [Retakes 3.0.2](https://github.com/B3none/cs2-retakes/tree/3.0.2), [Instaplant-Quellcode](https://github.com/B3none/cs2-instaplant/blob/master/InstaplantPlugin.cs).
+
+Beim Upgrade auf 301.1 die neue RetakesAllocator.dll und RetakesAllocatorCore.dll vollständig ersetzen und Container neu starten. Im Plugin-Log muss 301.1 stehen. Alte T-/CT-Loadout-/Pistol-/HalfBuy-Sprachschlüssel und Menü-GIFs werden nicht mehr benutzt und sind aus den mitgelieferten Sprachdateien entfernt. Werden diese Menüs noch angezeigt, prüfen, ob ein alter Allocator oder ein anderes Waffenmenü parallel geladen wird.

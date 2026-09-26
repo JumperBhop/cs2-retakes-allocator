@@ -1,5 +1,3 @@
-using System.Net;
-using System.Text;
 using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Entities.Constants;
@@ -26,6 +24,7 @@ public class AdvancedGunMenu
         public bool Loading = true;
     }
     private readonly Dictionary<ulong, Session> _sessions = new();
+    public bool HasOpenMenus => _sessions.Count > 0;
     public bool IsOpen(CCSPlayerController player) => _sessions.ContainsKey(player.SteamID);
     private static ulong ReadButtons(CCSPlayerController player) =>
         player.Pawn.Value is { IsValid: true, MovementServices: { } movement }
@@ -111,7 +110,7 @@ public class AdvancedGunMenu
             }
             if (session.Saving || session.Loading) continue;
             var choices = Choices(session);
-            var count = session.Page == 0 ? 3 : choices.Count;
+            var count = session.Page == 0 ? GunMenuView.MainOptions.Count : choices.Count;
             if (count == 0) { session.Index = 0; continue; }
             session.Index = Math.Clamp(session.Index, 0, count - 1);
             if ((pressed & PlayerButtons.Forward) != 0) session.Index = (session.Index + count - 1) % count;
@@ -125,8 +124,8 @@ public class AdvancedGunMenu
             {
                 if (session.Page == 0)
                 {
-                    if (session.Index == 2) Close(player);
-                    else { session.Page = session.Index + 1; session.Index = 0; }
+                    session.Page = session.Index + 1;
+                    session.Index = 0;
                 }
                 else
                 {
@@ -177,25 +176,12 @@ public class AdvancedGunMenu
     public string? Render(CCSPlayerController player)
     {
         if (!_sessions.TryGetValue(player.SteamID, out var session)) return null;
-        static string Html(string text) => WebUtility.HtmlEncode(text);
         static string Name(CsItem? item) => item == null ? "Default" :
             WeaponHelpers.IsUsableWeapon(item.Value) ? item.Value.GetName() : "Unavailable (fallback)";
-        var builder = new StringBuilder("<b>Jumper Retakes | Guns</b><br>");
         var savedPrimary = session.Preferences?.GetWeaponPreference(session.Team, WeaponAllocationType.FullBuyPrimary);
-        var savedHalf = session.Preferences?.GetWeaponPreference(session.Team, WeaponAllocationType.HalfBuyPrimary);
-        builder.Append($"Primary {session.Team}: {Html(Name(savedPrimary))} / HalfBuy: {Html(Name(savedHalf))}<br>");
-        builder.Append($"Secondary (CT + T): {Html(Name(session.Preferences?.GetSharedSecondaryPreference()))}<br>");
-        var rows = session.Page == 0 ? new List<string> { "Primary Weapon", "Secondary Weapon", "Close" }
-            : Choices(session).Select(weapon => weapon.GetName()).ToList();
-        if (rows.Count == 0) builder.Append("No enabled weapons<br>");
-        session.Index = rows.Count == 0 ? 0 : Math.Clamp(session.Index, 0, rows.Count - 1);
-        var start = Math.Max(0, Math.Min(session.Index - 2, rows.Count - 5));
-        for (var i = start; i < Math.Min(rows.Count, start + 5); i++)
-            builder.Append(i == session.Index ? $"<font color='orange'>&gt; {Html(rows[i])}</font><br>" : $"{Html(rows[i])}<br>");
-        builder.Append("W/S: navigate | E: select | R: back/close<br>");
-        if (session.Page == 1) builder.Append("A/D: switch CT / T<br>");
-        builder.Append(Html(session.Saving ? "Saving..." : session.Loading && session.Status == "" ? "Loading..." : session.Status));
-        builder.Append($"<br><b>{Html(Configs.GetConfigData().MenuFooter)}</b>");
-        return builder.ToString();
+        var status = session.Saving ? "Saving..." : session.Loading && session.Status == "" ? "Loading..." : session.Status;
+        return GunMenuView.Render(session.Page, session.Index, Choices(session).Select(weapon => weapon.GetName()).ToList(),
+            Name(savedPrimary), Name(session.Preferences?.GetSharedSecondaryPreference()),
+            session.Team == CsTeam.Terrorist ? "T" : "CT", status, Configs.GetConfigData().MenuFooter);
     }
 }

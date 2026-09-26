@@ -40,7 +40,7 @@ jobs:
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
-          name: RetakesAllocator-301-linux-x64
+          name: RetakesAllocator-301.1-linux-x64
           path: artifacts/*.zip
       - name: Upload test results
         if: always()

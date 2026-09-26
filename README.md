@@ -1,4 +1,6 @@
-> **Jumper RetakesAllocator 301:** original Advanced Gun Menu (W/S, E, R; A/D switches primary team), shared pistol preference, NoAWP validation and a 10-second plant deadline after freeze time. CounterStrikeSharp 375 / Retakes 3.0.2. Read [INSTALLATION-DE.md](INSTALLATION-DE.md), [CHANGELOG-301.md](CHANGELOG-301.md) and [TESTPLAN-301.md](TESTPLAN-301.md). Existing database/preferences are retained.
+> **301.1 menu fix:** only Primary Weapon and Secondary Weapon; larger text, no decorative blocks or animated menu images. R closes the main menu. Scoped HTML HUD stabilization and cached updates reduce flicker.
+
+> **Jumper RetakesAllocator 301.1:** original Advanced Gun Menu (W/S, E, R; A/D switches primary team), shared pistol preference, NoAWP validation and a 10-second plant deadline after freeze time. CounterStrikeSharp 375 / Retakes 3.0.2. Read [INSTALLATION-DE.md](INSTALLATION-DE.md), [CHANGELOG-301.md](CHANGELOG-301.md) and [TESTPLAN-301.md](TESTPLAN-301.md). Existing database/preferences are retained.
 # CS2 Retakes Allocator
 
 [![Build RetakesAllocator.zip](https://github.com/JumperBhop/cs2-retakes-allocator/actions/workflows/build.yml/badge.svg)](https://github.com/JumperBhop/cs2-retakes-allocator/actions/workflows/build.yml)
@@ -11,7 +13,7 @@ This plugin is made to run alongside B3none's retakes implementation: https://gi
 
 - Ensure you have https://github.com/b3none/cs2-retakes installed already
 - Update the `RetakesPlugin` config to have `EnableFallbackAllocation` disabled
-- Download version 301 from https://github.com/JumperBhop/cs2-retakes-allocator/releases/tag/301
+- Download version 301 from https://github.com/JumperBhop/cs2-retakes-allocator/releases/tag/301.1
 - Extract the zip archive and upload the `RetakesAllocator` plugin to your CounterStrikeSharp plugins folder on your
   server
     - This fork packages Linux x64 only.
