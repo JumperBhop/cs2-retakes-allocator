@@ -13,6 +13,7 @@ public sealed class HtmlHudStability
 
     public void Update(bool visible)
     {
+        if (!Helpers.EntityLifecycle.Ready || (!visible && _rules == null)) return;
         var current = Helpers.GetGameRules();
         if (current == null) return;
         if (_rules?.Handle != current.Handle) { _lease.Forget(); _rules = current; }

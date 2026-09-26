@@ -60,6 +60,7 @@ public class RetakesAllocator : BasePlugin
 
     public override void Load(bool hotReload)
     {
+        Helpers.ResetEntityLifecycle();
         Configs.Shared.Module = ModuleDirectory;
         _plantTimer = new PlantTimerController(this);
 
@@ -70,7 +71,10 @@ public class RetakesAllocator : BasePlugin
 
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
+            // Clear old managed state before allowing any entities from the new map.
+            Helpers.EntityLifecycle.Suspend();
             ResetState();
+            Helpers.EntityLifecycle.Resume();
             Log.Debug($"Setting map name {mapName}");
             RoundTypeManager.Instance.SetMap(mapName);
         });
@@ -84,6 +88,7 @@ public class RetakesAllocator : BasePlugin
         AddCommandListener("autobuy", OnBuyCommand);
         RegisterListener<Listeners.OnMapEnd>(() =>
         {
+            Helpers.EntityLifecycle.Suspend();
             _allocatedThisRound = true;
             IsAllocatingForRound = false;
             _allocatorMenuManager.Reset();
@@ -151,6 +156,7 @@ public class RetakesAllocator : BasePlugin
         ResetRoundHud();
         _advancedGunMenu.Reset();
         _allocatedPlayerItems.Clear();
+        Helpers.EntityLifecycle.Suspend();
         IsAllocatingForRound = false;
         Queries.Disconnect();
     }
@@ -667,7 +673,7 @@ public class RetakesAllocator : BasePlugin
 
     private void HandleAllocateEvent()
     {
-        if (_unloading || _allocatedThisRound || Helpers.IsWarmup()) return;
+        if (_unloading || !Helpers.EntityLifecycle.Ready || _allocatedThisRound || Helpers.IsWarmup()) return;
         _allocatedThisRound = true;
         _allocatedPlayerItems.Clear();
         IsAllocatingForRound = true;
@@ -743,7 +749,24 @@ public class RetakesAllocator : BasePlugin
 
     public void OnTick()
     {
-        if (_unloading) return;
+        if (_unloading || !Helpers.ProbeEntityReadiness()) return;
+        try
+        {
+            TickReadyEntities();
+        }
+        catch (NativeException exception) when (exception.Message.Contains("Entity system yet is not initialized", StringComparison.Ordinal))
+        {
+            // Another plugin can have poisoned CSS 375's process-wide Lazy before our probe.
+            // Do not replay that cached exception every tick or modify CSS private state.
+            Helpers.EntityLifecycle.Suspend();
+            ResetRoundHud();
+            _advancedGunMenu.Reset();
+            Log.Error("CSS entity cache is unavailable. Stop and restart the entire CS2 container; a plugin reload cannot clear CSS 375's cached startup exception. Check other plugins accessing entities during startup (for example Ranks).");
+        }
+    }
+
+    private void TickReadyEntities()
+    {
         _advancedGunMenu.OnTick(); // Reads buttons only; never sends a HUD message.
         _hudStability.Update(_advancedGunMenu.HasOpenMenus || _hudRecipients.Count > 0);
         if (!_hudRefresh.ShouldRender(Server.CurrentTime)) return;
@@ -869,6 +892,7 @@ public class RetakesAllocator : BasePlugin
     [GameEventHandler(HookMode.Post)]
     public HookResult OnEventPlayerChat(EventPlayerChat @event, GameEventInfo info)
     {
+        if (!Helpers.EntityLifecycle.Ready) return HookResult.Continue;
         // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (@event == null) return HookResult.Continue;
 

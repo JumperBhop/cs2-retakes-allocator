@@ -1,6 +1,6 @@
 param(
     [string]$OutputDirectory,
-    [string]$Version = '301.1'
+    [string]$Version = '301.2'
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent

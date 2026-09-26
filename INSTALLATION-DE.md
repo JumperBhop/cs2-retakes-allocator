@@ -1,6 +1,10 @@
-# Jumper RetakesAllocator 301.1 – Installation
+# Jumper RetakesAllocator 301.2 – Installation
 
 Ziel: Linux x64 / Docker, CounterStrikeSharp **1.0.375 vollständig mit GameData**, B3none Retakes **3.0.2**. Der bestehende Allocator wurde weiterentwickelt; Plugin-Ordner und DLL heißen weiterhin **RetakesAllocator**. Kein anderes Menüpaket nötig.
+
+## Startfehler aus dem Serverlog
+
+301.2 wartet vor Entity-Zugriffen auf das initialisierte Entity-System. Bei bereits aufgetretenem Fehler unbedingt den ganzen Container stoppen und neu starten. Ein Plugin-Reload reicht bei CSS375 nicht: EntitySystem verwendet einen Lazy, der die erste Ausnahme dauerhaft speichert. Im vorgelegten Log verursacht auch Ranks.UpdateUserStatsTimer denselben Fehler. Falls er nach dem Neustart weiter aus Ranks kommt, Ranks aktualisieren oder vorübergehend deaktivieren; der Allocator-Patch repariert dieses andere Plugin nicht.
 
 ## Update
 
@@ -57,4 +61,4 @@ Release-Build und automatisierte Regressionstests werden lokal und im Linux-CI a
 
 Quellen: [CSS375](https://github.com/roflmuffin/CounterStrikeSharp/releases/tag/v1.0.375), [Retakes 3.0.2](https://github.com/B3none/cs2-retakes/tree/3.0.2), [Instaplant-Quellcode](https://github.com/B3none/cs2-instaplant/blob/master/InstaplantPlugin.cs).
 
-Beim Upgrade auf 301.1 die neue RetakesAllocator.dll und RetakesAllocatorCore.dll vollständig ersetzen und Container neu starten. Im Plugin-Log muss 301.1 stehen. Alte T-/CT-Loadout-/Pistol-/HalfBuy-Sprachschlüssel und Menü-GIFs werden nicht mehr benutzt und sind aus den mitgelieferten Sprachdateien entfernt. Werden diese Menüs noch angezeigt, prüfen, ob ein alter Allocator oder ein anderes Waffenmenü parallel geladen wird.
+Beim Upgrade auf 301.2 die neue RetakesAllocator.dll und RetakesAllocatorCore.dll vollständig ersetzen und Container neu starten. Im Plugin-Log muss 301.2 stehen. Alte T-/CT-Loadout-/Pistol-/HalfBuy-Sprachschlüssel und Menü-GIFs werden nicht mehr benutzt und sind aus den mitgelieferten Sprachdateien entfernt. Werden diese Menüs noch angezeigt, prüfen, ob ein alter Allocator oder ein anderes Waffenmenü parallel geladen wird.

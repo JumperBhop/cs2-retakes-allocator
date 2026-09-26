@@ -1,3 +1,15 @@
+# Jumper RetakesAllocator 301.2
+
+## Patch 301.2: Entity-System beim Serverstart
+
+- Vor dem ersten Entity-Zugriff prüft der Allocator auf dem Server-Thread die öffentliche NativeAPI.GetConcreteEntityListPointer-API. Noch nicht initialisierte Entity-Systeme werden höchstens einmal pro Sekunde erneut geprüft, ohne CSSs EntitySystem-Lazy anzufassen.
+- OnTick verarbeitet Menüeingaben, HUD und Spieler erst nach erfolgreicher Prüfung. Beim Map-Ende werden Zugriffe gesperrt; beim Map-Start wird erneut geprüft. Hot-Reload auf einem bereits gestarteten Server bleibt möglich.
+- Initiales HUD-Reset, Menü-Reset, Spielerprüfung, GameRules-Abfrage, Chat-Events und Ausrüstung respektieren diese Freigabe. Ein unsichtbares HUD ohne eigene Restart-Flag-Lease sucht keine GameRules.
+- Falls ein anderes Plugin den prozessweiten CSS375-Lazy bereits mit dem Startfehler belastet hat, stoppt der Allocator seine Tick-Zugriffe und gibt eine einzelne Fehlermeldung aus. Keine Reflection-Manipulation an CSS, keine neuen Native-Hooks oder Signatures.
+- Vollständiger Container-Neustart erforderlich: Plugin-Reload beseitigt einen bereits gecachten Fehler nicht. Das vorgelegte Log enthält denselben Fehler zusätzlich in Ranks.UpdateUserStatsTimer; dieser Patch verändert Ranks nicht.
+- Lokal: 74 Tests bestanden, 1 MySQL-Test mangels lokalem Server übersprungen; Plugin-Build ohne Fehler/Warnungen. Vier neue Lebenszyklus-Tests prüfen verzögerten Start, Probe-Begrenzung, Mapwechsel, Hot-Reload und unerwartete Probe-Fehler. Linux/MySQL-Prüfung erfolgt zusätzlich im GitHub-Workflow.
+- Die Darstellung aus 301.1 bleibt erhalten: Hauptmenü nur Primary Weapon und Secondary Weapon, größere Schrift, keine Blockzeichen.
+
 # Jumper RetakesAllocator – Änderungen
 
 ## Update 301.1 – Menü und HUD

@@ -11,7 +11,7 @@ public abstract class AbstractBaseMenu
     public virtual void Reset()
     {
         foreach (var player in PlayersInMenu)
-            if (player.IsValid) CounterStrikeSharp.API.Modules.Menu.MenuManager.CloseActiveMenu(player);
+            if (Helpers.PlayerIsValid(player)) CounterStrikeSharp.API.Modules.Menu.MenuManager.CloseActiveMenu(player);
         PlayersInMenu.Clear();
     }
 

@@ -4,7 +4,7 @@ Voraussetzungen: Linux-Testserver/Docker, CSS375 mit vollständiger GameData, Re
 
 ## 1. Start und Lebenszyklus
 
-- Container neu starten. RetakesAllocator muss Version 301 anzeigen und sich am AllocateEvent anmelden. Keine Invalid-function-pointer-/GC-Delegate-Meldung.
+- Container neu starten. RetakesAllocator muss Version 301.2 anzeigen und sich am AllocateEvent anmelden. Keine Invalid-function-pointer-/GC-Delegate-Meldung.
 - EnableCanAcquireHook=false testen: !guns und normale Ausrüstung bleiben funktionsfähig.
 - Mehrere Mapwechsel, anschließend geordnetes Plugin-Unload/Reload testen. Keine alten Countdown-/Menüanzeigen oder späteren Timer-Aktionen.
 - Einen offenen Menü-Speichervorgang während Reconnect/Mapwechsel prüfen. Alte Antworten dürfen das Menü nicht wieder öffnen.
@@ -61,3 +61,9 @@ Voraussetzungen: Linux-Testserver/Docker, CSS375 mit vollständiger GameData, Re
 - Hauptmenü enthält exakt zwei Einträge. Untermenü zeigt jeweils drei große Waffenzeilen, Auswahl scrollt durch alle erlaubten Waffen.
 - Während geöffnetem Menü einen echten mp_restartgame-Neustart durchführen: Neustart funktioniert. Danach Menü schließen und mehrere normale Retake-Runden spielen; keine falschen Neustarts oder hängenbleibenden HUD-Flags.
 - Round-/Map-Cleanup und Unload mit offenem Menü bzw. aktivem Countdown prüfen. Keine alte Anzeige und keine zurückgelassene eigene GameRestart-Änderung.
+
+## 301.2: Serverstart und Entity-System
+
+- Vollständigen Container-Kaltstart und mehrere Mapwechsel prüfen: keine wiederholten Entity system yet is not initialized-Meldungen aus dem Allocator; !guns und zukünftige Ausrüstung funktionieren nach Mapstart.
+- Nach vollständig gestartetem Server Plugin-Unload/Hot-Reload testen; !guns ohne zusätzlichen Mapwechsel verfügbar.
+- Im Log den Ursprung verbleibender Fehler prüfen: Ranks.UpdateUserStatsTimer gehört zum Ranks-Plugin. Bei Wiederholung Ranks gesondert aktualisieren/deaktivieren und danach den Container neu starten.

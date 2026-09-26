@@ -12,13 +12,30 @@ namespace RetakesAllocator;
 
 public static class Helpers
 {
+    public static EntityReadinessGate EntityLifecycle { get; private set; } = new();
+
+    public static void ResetEntityLifecycle() => EntityLifecycle = new();
+
+    public static bool ProbeEntityReadiness() => EntityLifecycle.TryEnter(Environment.TickCount64, () =>
+    {
+        try
+        {
+            // This native call has no managed Lazy and can safely be retried after startup.
+            return NativeAPI.GetConcreteEntityListPointer() != IntPtr.Zero;
+        }
+        catch (NativeException exception) when (exception.Message.Contains("Entity system yet is not initialized", StringComparison.Ordinal))
+        {
+            return false;
+        }
+    });
+
     public static bool PlayerIsValid([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] CCSPlayerController? player)
     {
-        return player is not null && player.IsValid;
+        return EntityLifecycle.Ready && player is not null && player.IsValid;
     }
 
     public static bool PlayerCanReceiveWeapons(CCSPlayerController? player) =>
-        player is { IsValid: true, PawnIsAlive: true, IsHLTV: false } &&
+        EntityLifecycle.Ready && player is { IsValid: true, PawnIsAlive: true, IsHLTV: false } &&
         player.Connected == PlayerConnectedState.Connected &&
         player.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist &&
         player.PlayerPawn.Value is { IsValid: true, ItemServices: not null };
@@ -164,6 +181,7 @@ public static class Helpers
 
     public static CCSGameRules? GetGameRules()
     {
+        if (!EntityLifecycle.Ready) return null;
         try
         {
             var gameRulesEntities = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules");
@@ -197,6 +215,7 @@ public static class Helpers
 
     public static int GetNumPlayersOnTeam()
     {
+        if (!EntityLifecycle.Ready) return 0;
         return Utilities.GetPlayers()
             .Where(player => player.IsValid)
             .Where(player => player.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist).ToList()
