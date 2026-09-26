@@ -6,9 +6,11 @@ namespace RetakesAllocatorCore.Db;
 
 public class Queries
 {
+    private static readonly SemaphoreSlim WriteLock = new(1, 1);
     public static async Task<UserSetting?> GetUserSettings(ulong userId)
     {
-        return await Db.GetInstance().UserSettings.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId);
+        await using var instance = new Db();
+        return await instance.UserSettings.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId);
     }
 
     private static async Task<UserSetting?> UpsertUserSettings(ulong userId, Action<UserSetting> mutation)
@@ -21,24 +23,42 @@ public class Queries
         
         Log.Debug($"Upserting settings for {userId}");
 
-        var instance = Db.GetInstance();
-        var isNew = false;
-        var userSettings = await instance.UserSettings.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId);
-        if (userSettings is null)
+        await WriteLock.WaitAsync();
+        try
         {
-            userSettings = new UserSetting {UserId = userId};
-            await instance.UserSettings.AddAsync(userSettings);
-            isNew = true;
+            await using var instance = new Db();
+            var isNew = false;
+            var userSettings = await instance.UserSettings.AsNoTracking().FirstOrDefaultAsync(u => u.UserId == userId);
+            if (userSettings is null)
+            {
+                userSettings = new UserSetting {UserId = userId};
+                await instance.UserSettings.AddAsync(userSettings);
+                isNew = true;
+            }
+
+            instance.Entry(userSettings).State = isNew ? EntityState.Added : EntityState.Modified;
+
+            mutation(userSettings);
+
+            await instance.SaveChangesAsync();
+            instance.Entry(userSettings).State = EntityState.Detached;
+
+            return userSettings;
         }
+        finally { WriteLock.Release(); }
+    }
 
-        instance.Entry(userSettings).State = isNew ? EntityState.Added : EntityState.Modified;
-
-        mutation(userSettings);
-
-        await instance.SaveChangesAsync();
-        instance.Entry(userSettings).State = EntityState.Detached;
-
-        return userSettings;
+    public static async Task SetSharedSecondaryPreferenceAsync(ulong userId, CsItem? item)
+    {
+        if (item != null && (!WeaponHelpers.IsUsableWeapon(item.Value) ||
+                            WeaponHelpers.GetSlotTypeForItem(item) != ItemSlotType.Secondary))
+            throw new ArgumentException("Pistol is disabled or invalid");
+        await UpsertUserSettings(userId,
+            setting =>
+            {
+                CheckAllowed(item);
+                setting.SetWeaponPreference(CsTeam.None, WeaponAllocationType.Secondary, item);
+            });
     }
 
     public static async Task SetWeaponPreferenceForUserAsync(ulong userId, CsTeam team,
@@ -46,7 +66,11 @@ public class Queries
         CsItem? item)
     {
         await UpsertUserSettings(userId,
-            userSetting => { userSetting.SetWeaponPreference(team, weaponAllocationType, item); });
+            userSetting =>
+            {
+                CheckAllowed(item);
+                userSetting.SetWeaponPreference(team, weaponAllocationType, item);
+            });
     }
 
     public static void SetWeaponPreferenceForUser(ulong userId, CsTeam team, WeaponAllocationType weaponAllocationType,
@@ -69,11 +93,18 @@ public class Queries
     {
         await UpsertUserSettings(userId, userSetting =>
         {
+            CheckAllowed(item);
             userSetting.SetWeaponPreference(CsTeam.Terrorist, WeaponAllocationType.Preferred,
                 WeaponHelpers.CoercePreferredTeam(item, CsTeam.Terrorist));
             userSetting.SetWeaponPreference(CsTeam.CounterTerrorist, WeaponAllocationType.Preferred,
                 WeaponHelpers.CoercePreferredTeam(item, CsTeam.CounterTerrorist));
         });
+    }
+
+    private static void CheckAllowed(CsItem? item)
+    {
+        if (item != null && !WeaponHelpers.IsUsableWeapon(item.Value))
+            throw new ArgumentException("Weapon is disabled by configuration");
     }
 
     public static void SetPreferredWeaponPreference(ulong userId, CsItem? item)

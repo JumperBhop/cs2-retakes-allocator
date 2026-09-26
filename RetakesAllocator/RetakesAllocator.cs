@@ -22,6 +22,7 @@ using static RetakesAllocatorCore.PluginInfo;
 using RetakesPluginShared;
 using RetakesPluginShared.Events;
 using CounterStrikeSharp.API.Modules.Events;
+using System.Net;
 
 namespace RetakesAllocator;
 
@@ -30,8 +31,8 @@ public class RetakesAllocator : BasePlugin
 {
     public override string ModuleName => "Retakes Allocator Plugin";
     public override string ModuleVersion => PluginInfo.Version;
-    public override string ModuleAuthor => "Yoni Lerner, B3none, Gold KingZ";
-    public override string ModuleDescription => "https://github.com/yonilerner/cs2-retakes-allocator";
+    public override string ModuleAuthor => "Yoni Lerner, B3none, Gold KingZ, Jumper";
+    public override string ModuleDescription => "https://github.com/JumperBhop/cs2-retakes-allocator";
 
     private readonly AllocatorMenuManager _allocatorMenuManager = new();
     private readonly AdvancedGunMenu _advancedGunMenu = new();
@@ -45,17 +46,25 @@ public class RetakesAllocator : BasePlugin
     private bool _allocatedThisRound = true;
     private string _bombsite = "";
     private bool _announceBombsite;
-    private bool _bombsiteAnnounceOneTime;
+    private PlantTimerController _plantTimer = null!;
+    private bool _retakeActive;
+    private bool _freezeEnded;
+    private readonly HudRefreshGate _hudRefresh = new();
+    private float _siteStartAt;
+    private float _siteEndAt;
+    private readonly Dictionary<ulong, CCSPlayerController> _hudRecipients = new();
 
     #region Setup
 
     public override void Load(bool hotReload)
     {
         Configs.Shared.Module = ModuleDirectory;
+        _plantTimer = new PlantTimerController(this);
 
         Log.Debug($"Loaded. Hot reload: {hotReload}");
         ResetState();
         Batteries.Init();
+        _plantTimer.Initialize();
 
         RegisterListener<Listeners.OnMapStart>(mapName =>
         {
@@ -76,11 +85,10 @@ public class RetakesAllocator : BasePlugin
             _allocatedThisRound = true;
             IsAllocatingForRound = false;
             _allocatorMenuManager.Reset();
+            ResetRoundHud();
+            _advancedGunMenu.Reset();
         });
-        if (Configs.GetConfigData().UseOnTickFeatures)
-        {
-            RegisterListener<Listeners.OnTick>(OnTick);
-        }
+        RegisterListener<Listeners.OnTick>(OnTick); // Menu input and shared HUD always remain available.
 
 
         if (Configs.GetConfigData().MigrateOnStartup)
@@ -99,6 +107,8 @@ public class RetakesAllocator : BasePlugin
 
     private void ResetState(bool loadConfig = true)
     {
+        ResetRoundHud();
+        _advancedGunMenu.Reset();
         if (loadConfig)
         {
             Configs.Load(ModuleDirectory, true);
@@ -114,7 +124,6 @@ public class RetakesAllocator : BasePlugin
         _allocatedThisRound = true;
         _bombsite = "";
         _announceBombsite = false;
-        _bombsiteAnnounceOneTime = false;
     }
 
     public override void OnAllPluginsLoaded(bool hotReload)
@@ -137,6 +146,8 @@ public class RetakesAllocator : BasePlugin
             RetakesPluginEventSender.RetakesPluginEventHandlers -= RetakesEventHandler;
         RetakesPluginEventSender = null;
         _allocatorMenuManager.Reset();
+        ResetRoundHud();
+        _advancedGunMenu.Reset();
         _allocatedPlayerItems.Clear();
         IsAllocatingForRound = false;
         Queries.Disconnect();
@@ -165,6 +176,7 @@ public class RetakesAllocator : BasePlugin
         Action? handler = @event switch
         {
             AllocateEvent => HandleAllocateEvent,
+            AnnounceBombsiteEvent announcement => () => AnnounceBombsite(announcement.Bombsite.ToString()),
             _ => null
         };
         handler?.Invoke();
@@ -189,7 +201,7 @@ public class RetakesAllocator : BasePlugin
     public void OnGunsCommand(CCSPlayerController? player, CommandInfo command)
     {
         if (_unloading || !Helpers.PlayerIsValid(player)) return;
-        _allocatorMenuManager.OpenMenuForPlayer(player!, MenuType.Guns);
+        _advancedGunMenu.Open(player!);
     }
 
     #region Commands
@@ -678,6 +690,8 @@ public class RetakesAllocator : BasePlugin
                 Helpers.IsVip,
                 out var currentRoundType
             );
+            _retakeActive = allPlayers.Count > 0;
+            if (_freezeEnded) _plantTimer.Start(_retakeActive);
             RoundTypeManager.Instance.SetCurrentRoundType(currentRoundType);
             RoundTypeManager.Instance.SetNextRoundTypeOverride(null);
 
@@ -725,49 +739,71 @@ public class RetakesAllocator : BasePlugin
 
     public void OnTick()
     {
-        if (!string.IsNullOrEmpty(Configs.GetConfigData().InGameGunMenuCenterCommands))
+        if (_unloading) return;
+        _advancedGunMenu.OnTick(); // Reads buttons only; never sends a HUD message.
+        if (!_hudRefresh.ShouldRender(Server.CurrentTime)) return;
+        var countdown = _plantTimer.Render();
+        var players = Utilities.GetPlayers().Where(p => Helpers.PlayerIsValid(p) && !p.IsBot && !p.IsHLTV).ToList();
+        var countct = players.Count(p => p.Team == CsTeam.CounterTerrorist && p.PawnIsAlive);
+        var countt = players.Count(p => p.Team == CsTeam.Terrorist && p.PawnIsAlive);
+        foreach (var player in players)
         {
-            _advancedGunMenu.OnTick();
-        }
-
-        if (_announceBombsite)
-        {
-            var playerEntities = Utilities.FindAllEntitiesByDesignerName<CCSPlayerController>("cs_player_controller");
-            var countct = Utilities.GetPlayers()
-                .Count(p => p.TeamNum == (int) CsTeam.CounterTerrorist && p.PawnIsAlive && !p.IsHLTV);
-            var countt = Utilities.GetPlayers()
-                .Count(p => p.TeamNum == (int) CsTeam.Terrorist && p.PawnIsAlive && !p.IsHLTV);
-            string image = _bombsite == "A" ? Translator.Instance["BombSite.A"] :
-                _bombsite == "B" ? Translator.Instance["BombSite.B"] : "";
-            foreach (var player in playerEntities)
+            var html = _advancedGunMenu.Render(player);
+            if (countdown != null && player.Team is CsTeam.Terrorist or CsTeam.CounterTerrorist)
+                html = countdown + (html == null ? "" : "<br>" + html);
+            if (html == null && Configs.GetConfigData().UseOnTickFeatures && _announceBombsite &&
+                Server.CurrentTime >= _siteStartAt && Server.CurrentTime < _siteEndAt && player.PawnIsAlive &&
+                (player.Team == CsTeam.CounterTerrorist ||
+                 player.Team == CsTeam.Terrorist && !Configs.GetConfigData().BombSiteAnnouncementCenterToCTOnly))
+                html = $"<b>Bombsite {WebUtility.HtmlEncode(_bombsite)}</b><br>T: {countt} | CT: {countct}";
+            if (html != null)
             {
-                if (!player.IsValid || !player.PawnIsAlive || player.IsBot || player.IsHLTV) continue;
-
-                if (player.TeamNum == (byte) CsTeam.Terrorist &&
-                    !Configs.GetConfigData().BombSiteAnnouncementCenterToCTOnly)
-                {
-                    StringBuilder builder = new StringBuilder();
-                    builder.AppendFormat(Localizer["T.Message"], _bombsite, image, countt, countct);
-                    var centerhtml = builder.ToString();
-                    player.PrintToCenterHtml(centerhtml);
-                }
-                else if (player.TeamNum == (byte) CsTeam.CounterTerrorist)
-                {
-                    StringBuilder builder = new StringBuilder();
-                    builder.AppendFormat(Localizer["CT.Message"], _bombsite, image, countt, countct);
-                    var centerhtml = builder.ToString();
-                    player.PrintToCenterHtml(centerhtml);
-                }
+                player.PrintToCenterHtml(html, 1); // At most four HUD messages/second, one owner per player.
+                _hudRecipients[player.SteamID] = player;
             }
+            else if (_hudRecipients.Remove(player.SteamID)) player.PrintToCenterHtml("", 0);
         }
+        foreach (var id in _hudRecipients.Keys.Except(players.Select(p => p.SteamID)).ToArray()) _hudRecipients.Remove(id);
     }
 
+    private void ResetRoundHud()
+    {
+        _plantTimer?.Stop();
+        _retakeActive = false;
+        _freezeEnded = false;
+        _announceBombsite = false;
+        _hudRefresh.Reset();
+        foreach (var player in _hudRecipients.Values)
+            if (Helpers.PlayerIsValid(player)) player.PrintToCenterHtml("", 0);
+        _hudRecipients.Clear();
+    }
+
+    private void AnnounceBombsite(string site)
+    {
+        if (Helpers.IsWarmup()) return;
+        _bombsite = site;
+        _announceBombsite = Configs.GetConfigData().EnableBombSiteAnnouncementCenter;
+        _siteStartAt = Server.CurrentTime + Math.Max(0, Configs.GetConfigData().BombSiteAnnouncementCenterDelay);
+        _siteEndAt = _siteStartAt + Math.Max(0, Configs.GetConfigData().BombSiteAnnouncementCenterShowTimer);
+        if (Configs.GetConfigData().EnableBombSiteAnnouncementChat)
+            Server.PrintToChatAll($"{MessagePrefix}Bombsite: {site}");
+    }
+
+    [GameEventHandler]
+    public HookResult OnRoundFreezeEnd(EventRoundFreezeEnd @event, GameEventInfo info)
+    {
+        _freezeEnded = true;
+        _plantTimer.Start(_retakeActive);
+        return HookResult.Continue;
+    }
     [GameEventHandler(HookMode.Pre)]
     public HookResult OnEventBombPlanted(EventBombPlanted @event, GameEventInfo info)
     {
         // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (@event == null) return HookResult.Continue;
 
+        _plantTimer.OnPlant();
+        _hudRefresh.Reset();
         if (Configs.GetConfigData().DisableDefaultBombPlantedCenterMessage)
         {
             info.DontBroadcast = true;
@@ -787,7 +823,9 @@ public class RetakesAllocator : BasePlugin
     {
         // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (@event == null) return HookResult.Continue;
-        _bombsiteAnnounceOneTime = false;
+        _plantTimer.NewRound();
+        _retakeActive = false;
+        _freezeEnded = false;
         _allocatedThisRound = false;
         return HookResult.Continue;
     }
@@ -799,118 +837,21 @@ public class RetakesAllocator : BasePlugin
         if (@event == null) return HookResult.Continue;
         _bombsite = "";
         _announceBombsite = false;
+        ResetRoundHud();
         _allocatedThisRound = true;
-        return HookResult.Continue;
-    }
-
-    [GameEventHandler]
-    public HookResult OnEventEnterBombzone(EventEnterBombzone @event, GameEventInfo info)
-    {
-        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
-        if (@event == null || Helpers.IsWarmup() || _bombsiteAnnounceOneTime) return HookResult.Continue;
-
-        var player = @event.Userid;
-        if (player == null || !player.IsValid || player.TeamNum != (byte) CsTeam.Terrorist) return HookResult.Continue;
-
-        var playerPawn = player.PlayerPawn;
-        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
-        if (playerPawn == null || !playerPawn.IsValid) return HookResult.Continue;
-
-        var playerPosition = playerPawn.Value!.AbsOrigin;
-
-        foreach (var entity in Utilities.FindAllEntitiesByDesignerName<CBombTarget>("info_bomb_target"))
-        {
-            var entityPosition = entity.AbsOrigin;
-            if (entityPosition != null)
-            {
-                var distanceVector = playerPosition! - entityPosition;
-                var distance = distanceVector.Length();
-                float thresholdDistance = 400.0f;
-
-                if (distance <= thresholdDistance)
-                {
-                    if (entity.DesignerName == "info_bomb_target_hint_A")
-                    {
-                        _bombsite = "A";
-                        if (Configs.GetConfigData().EnableBombSiteAnnouncementCenter)
-                        {
-                            Server.NextFrame(() =>
-                            {
-                                AddTimer(Configs.GetConfigData().BombSiteAnnouncementCenterDelay, () =>
-                                {
-                                    _bombsiteAnnounceOneTime = true;
-                                    _announceBombsite = true;
-                                    AddTimer(Configs.GetConfigData().BombSiteAnnouncementCenterShowTimer, () =>
-                                    {
-                                        _bombsite = "";
-                                        _announceBombsite = false;
-                                    }, TimerFlags.STOP_ON_MAPCHANGE);
-                                }, TimerFlags.STOP_ON_MAPCHANGE);
-                            });
-                        }
-
-                        if (Configs.GetConfigData().EnableBombSiteAnnouncementChat)
-                        {
-                            Server.PrintToChatAll(Localizer["chatAsite.line1"]);
-                            Server.PrintToChatAll(Localizer["chatAsite.line2"]);
-                            Server.PrintToChatAll(Localizer["chatAsite.line3"]);
-                            Server.PrintToChatAll(Localizer["chatAsite.line4"]);
-                            Server.PrintToChatAll(Localizer["chatAsite.line5"]);
-                            Server.PrintToChatAll(Localizer["chatAsite.line6"]);
-                        }
-
-                        break;
-                    }
-                    else if (entity.DesignerName == "info_bomb_target_hint_B")
-                    {
-                        _bombsite = "B";
-                        if (Configs.GetConfigData().EnableBombSiteAnnouncementCenter)
-                        {
-                            Server.NextFrame(() =>
-                            {
-                                AddTimer(Configs.GetConfigData().BombSiteAnnouncementCenterDelay, () =>
-                                {
-                                    _bombsiteAnnounceOneTime = true;
-                                    _announceBombsite = true;
-                                    AddTimer(Configs.GetConfigData().BombSiteAnnouncementCenterShowTimer, () =>
-                                    {
-                                        _bombsite = "";
-                                        _announceBombsite = false;
-                                    }, TimerFlags.STOP_ON_MAPCHANGE);
-                                }, TimerFlags.STOP_ON_MAPCHANGE);
-                            });
-                        }
-
-                        if (Configs.GetConfigData().EnableBombSiteAnnouncementChat)
-                        {
-                            Server.PrintToChatAll(Localizer["chatBsite.line1"]);
-                            Server.PrintToChatAll(Localizer["chatBsite.line2"]);
-                            Server.PrintToChatAll(Localizer["chatBsite.line3"]);
-                            Server.PrintToChatAll(Localizer["chatBsite.line4"]);
-                            Server.PrintToChatAll(Localizer["chatBsite.line5"]);
-                            Server.PrintToChatAll(Localizer["chatBsite.line6"]);
-                        }
-
-                        break;
-                    }
-                }
-            }
-        }
-
         return HookResult.Continue;
     }
 
     [GameEventHandler]
     public HookResult OnEventPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
     {
-        if (!string.IsNullOrEmpty(Configs.GetConfigData().InGameGunMenuCenterCommands))
+        if (@event.Userid is { } player)
         {
-            _advancedGunMenu.OnEventPlayerDisconnect(@event, info);
+            _advancedGunMenu.Close(player, false);
+            _hudRecipients.Remove(player.SteamID);
         }
-
         return HookResult.Continue;
     }
-
     // ReSharper disable once RedundantArgumentDefaultValue
     [GameEventHandler(HookMode.Post)]
     public HookResult OnEventPlayerChat(EventPlayerChat @event, GameEventInfo info)
@@ -918,10 +859,7 @@ public class RetakesAllocator : BasePlugin
         // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (@event == null) return HookResult.Continue;
 
-        if (!string.IsNullOrEmpty(Configs.GetConfigData().InGameGunMenuCenterCommands))
-        {
-            _advancedGunMenu.OnEventPlayerChat(@event, info);
-        }
+
 
         var eventplayer = @event.Userid;
         var eventmessage = @event.Text;
@@ -937,13 +875,14 @@ public class RetakesAllocator : BasePlugin
         // !guns and /guns are handled by css_guns; do not open the same menu twice.
         if (message.Equals("!guns", StringComparison.OrdinalIgnoreCase) ||
             message.Equals("/guns", StringComparison.OrdinalIgnoreCase)) return HookResult.Continue;
-        if (!string.IsNullOrEmpty(Configs.GetConfigData().InGameGunMenuChatCommands))
+        if (!string.IsNullOrEmpty(Configs.GetConfigData().InGameGunMenuChatCommands) ||
+            !string.IsNullOrEmpty(Configs.GetConfigData().InGameGunMenuCenterCommands))
         {
-            string[] chatMenuCommands = Configs.GetConfigData().InGameGunMenuChatCommands.Split(',');
+            string[] chatMenuCommands = (Configs.GetConfigData().InGameGunMenuChatCommands + "," + Configs.GetConfigData().InGameGunMenuCenterCommands).Split(',');
 
             if (chatMenuCommands.Any(cmd => cmd.Equals(message, StringComparison.OrdinalIgnoreCase)))
             {
-                _allocatorMenuManager.OpenMenuForPlayer(player, MenuType.Guns);
+                _advancedGunMenu.Open(player);
             }
         }
 
@@ -997,6 +936,7 @@ public class RetakesAllocator : BasePlugin
         {
             var itemString = EnumUtils.GetEnumMemberAttributeValue(item);
             if (string.IsNullOrWhiteSpace(itemString)) continue;
+            if (WeaponHelpers.IsWeapon(item) && !WeaponHelpers.IsWeaponAllowedForTeam(item, player.Team)) continue;
             player.GiveNamedItem(itemString);
             var slotType = WeaponHelpers.GetSlotTypeForItem(item);
             if (slotType != null) SetPlayerRoundAllocation(player, slotType.Value, item);

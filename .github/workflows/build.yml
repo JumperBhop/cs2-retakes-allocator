@@ -12,6 +12,19 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: allocator_ci_password
+          MYSQL_DATABASE: allocator_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pallocator_ci_password"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    env:
+      ALLOCATOR_TEST_MYSQL: "Server=127.0.0.1;Port=3306;User=root;Password=allocator_ci_password;Database=allocator_test;"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -27,7 +40,7 @@ jobs:
       - name: Upload installable package
         uses: actions/upload-artifact@v4
         with:
-          name: RetakesAllocator-2.4.2-jumper.1-linux-x64
+          name: RetakesAllocator-301-linux-x64
           path: artifacts/*.zip
       - name: Upload test results
         if: always()

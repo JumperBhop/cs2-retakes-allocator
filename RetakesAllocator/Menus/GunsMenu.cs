@@ -394,6 +394,11 @@ public class GunsMenu : AbstractBaseMenu
 
     private void OpenGiveAwpMenu(CCSPlayerController player)
     {
+        if (!WeaponHelpers.IsUsableWeapon(CsItem.AWP))
+        {
+            OnMenuComplete(player);
+            return;
+        }
         var menu = new ChatMenu($"{MessagePrefix}{Translator.Instance["guns_menu.awp_menu"]}");
 
         menu.AddMenuOption(AwpNeverOption, OnGiveAwpSelect);

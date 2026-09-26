@@ -86,6 +86,14 @@ public class OnWeaponCommandHelper
             return Ret(Translator.Instance["weapon_preference.invalid_weapon", weapon]);
         }
 
+        if (Configs.GetConfigData().SharedSecondaryPreference &&
+            WeaponHelpers.GetSlotTypeForItem(weapon) == ItemSlotType.Secondary)
+        {
+            await Queries.SetSharedSecondaryPreferenceAsync(userId, remove ? null : weapon);
+            return Ret(remove ? "Shared pistol preference removed." :
+                $"{weapon.GetName()} saved for both teams and all round types. Applies at the next Retake spawn.");
+        }
+
         var allocationType = WeaponHelpers.GetWeaponAllocationTypeForWeaponAndRound(
             roundType, team, weapon
         );

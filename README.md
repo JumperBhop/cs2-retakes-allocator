@@ -1,4 +1,4 @@
-> **Jumper compatibility fork:** based on v2.4.2, updated for CounterStrikeSharp 375 / Retakes 3.0.2 / CS2 1.41.8.2. Read [INSTALLATION-DE.md](INSTALLATION-DE.md) before upgrading. Existing database and weapon preferences are retained.
+> **Jumper RetakesAllocator 301:** original Advanced Gun Menu (W/S, E, R; A/D switches primary team), shared pistol preference, NoAWP validation and a 10-second plant deadline after freeze time. CounterStrikeSharp 375 / Retakes 3.0.2. Read [INSTALLATION-DE.md](INSTALLATION-DE.md), [CHANGELOG-301.md](CHANGELOG-301.md) and [TESTPLAN-301.md](TESTPLAN-301.md). Existing database/preferences are retained.
 ﻿# CS2 Retakes Allocator
 
 [![Build RetakesAllocator.zip](https://github.com/JumperBhop/cs2-retakes-allocator/actions/workflows/build.yml/badge.svg)](https://github.com/JumperBhop/cs2-retakes-allocator/actions/workflows/build.yml)
@@ -330,7 +330,7 @@ You can use the following commands to select specific weapon preferences per-use
 - `!gun <weapon> [T|CT]` - Set a preference the chosen weapon for the team you are currently on, or T/CT if provided
     - For example, if you are currently a terrorist and you do `!gun galil`, your preference for rifle rounds will be
       Galil
-- `!guns` - Opens up a chat-based menu for setting weapon preferences.
+- `!guns` - Opens the original Advanced center-HUD gun menu. W/S navigates, E saves, R goes back/closes. A/D switches CT/T on the primary page. Pistols are shared across both teams and all round types.
 - `!awp` - Toggle whether or not you want to get an AWP.
 - `!removegun <weapon> [T|CT]` - Remove a preference for the chosen weapon for the team you are currently on, or T/CT if
   provided

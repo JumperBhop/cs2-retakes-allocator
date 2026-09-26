@@ -1,89 +1,58 @@
-# RetakesAllocator 2.4.2-jumper.1 – Update für euren Linux-Server
+# Jumper RetakesAllocator 301 – Installation
 
-Dies ist eine Reparatur von Yoni Lerners bestehendem **cs2-retakes-allocator v2.4.2**, kein anderer Allocator. Ziel: **CounterStrikeSharp 1.0.375**, **B3none Retakes 3.0.2**, CS2 nach dem Source-2-Update **1.41.8.2**.
+Ziel: Linux x64 / Docker, CounterStrikeSharp **1.0.375 vollständig mit GameData**, B3none Retakes **3.0.2**. Der bestehende Allocator wurde weiterentwickelt; Plugin-Ordner und DLL heißen weiterhin **RetakesAllocator**. Kein anderes Menüpaket nötig.
 
-## Hochladen
+## Update
 
-1. Den CS2-Docker-Container stoppen.
-2. Den bisherigen RetakesAllocator-Ordner sichern. Auch die bisherige SQLite-Datei **data.db** sichern; deren Ort richtet sich nach eurer bestehenden DatabaseConnectionString und dem Arbeitsverzeichnis des Servers. Bei MySQL die bisherige Datenbank behalten.
-3. Das neue ZIP in **game/csgo/** entpacken bzw. dessen **addons/**-Ordner dorthin hochladen. Der Zielordner ist:
-   **game/csgo/addons/counterstrikesharp/plugins/RetakesAllocator/**
-4. Bestehende **config/config.json**, Datenbanken und eigene Übersetzungen behalten. Das Paket enthält keine Konfiguration und keine Datenbank. Den neuen Allocator wieder aktivieren; nur eine Kopie der DLL laden.
-5. In **addons/counterstrikesharp/configs/plugins/RetakesPlugin/RetakesPlugin.json** unter **GameSettings** wieder setzen:
-   ~~~json
-   "EnableFallbackAllocation": false
-   ~~~
-   Während RetakesAllocator aktiv ist, muss Retakes' Fallback aus sein, sonst verteilen beide Plugins Waffen.
-6. Container vollständig neu starten. Nicht nur die DLL im laufenden Prozess ersetzen. CounterStrikeSharp muss die vollständige Version 375 einschließlich ihres GameData-Ordners enthalten; nur die API-DLL zu aktualisieren reicht nicht.
-7. Im Log muss **Connected to Retakes AllocateEvent** erscheinen. Bei aktiviertem Buy-Hook erscheint zusätzlich **CanAcquire hook attached using CounterStrikeSharp gamedata**. Kann dessen Signatur nicht aufgelöst werden, wird nur der optionale Buy-Hook übersprungen; !guns und reguläre Rundenvergabe bleiben verfügbar.
-
-Die DLL verwendet .NET 10, wie CounterStrikeSharp 375. Die notwendigen SQLite- und anderen Plugin-Abhängigkeiten sowie die native Linux-x64-SQLite-Bibliothek sind im Paket enthalten. CounterStrikeSharp.API.dll und RetakesPluginShared.dll stammen aus eurer vorhandenen Installation und werden nicht überschrieben.
-
-## !guns und Speicherung
-
-**!guns** bzw. **/guns** öffnet das vorhandene Chatmenü des Allocators. Dort werden T-Primary, T-Secondary, CT-Primary und CT-Secondary ausgewählt. Die weiteren bestehenden Menüs/Befehle bleiben erhalten.
-
-Die Auswahl wird mit dem vorhandenen Datenbankschema gespeichert. Datenbankänderungen werden nun abgewartet, bevor die Auswahl als gespeichert behandelt wird. Die zusätzliche Einstellung **ApplySelectionsOnNextSpawnOnly** ist standardmäßig **true**, auch beim Einlesen einer alten Konfiguration, in der sie noch nicht vorkommt:
+1. CS2-Container stoppen. Den bisherigen Allocator-Ordner, seine config/config.json und die bestehende MySQL-Datenbank sichern.
+2. ZIP nach **game/csgo/** entpacken: addons/counterstrikesharp/plugins/RetakesAllocator/. Nur eine Allocator-DLL aktiv halten.
+3. Bestehende Konfiguration, DatabaseProvider, DatabaseConnectionString und Datenbank behalten. Das ZIP enthält weder Konfiguration noch Datenbank. Bestehende JSON-Dateien werden beim Laden nicht umgeschrieben. Flache Einstellungen und die Gruppen **Config**, **Weapons**, **AWP**, **Database** mit denselben Eigenschaftsnamen werden eingelesen. Gruppen zuerst, explizite Einstellungen auf der obersten Ebene zuletzt.
+4. In RetakesPlugin.json unter **GameSettings** setzen: **EnableFallbackAllocation: false**. Der Allocator und die Retakes-Fallback-Verteilung dürfen nicht gleichzeitig aktiv sein.
+5. Für manuelles Planten in RetakesPlugin.json unter **Bomb** setzen: **IsAutoPlantEnabled: false**. Bei aktiviertem Autoplant wird die Bombe durch Retakes gelegt und der Countdown startet nicht bzw. wird beendet.
+6. Für normale Plant-Dauer **InstaplantPlugin deaktivieren**: dessen Plugin-Ordner außerhalb addons/counterstrikesharp/plugins/ verschieben. B3nones Instaplant hat keine Abschalt-Konfiguration und keinen konkurrierenden Countdown; es setzt beim Plant-Beginn ArmedTime auf 0. Bleibt es aktiv, ist instant erfolgreiches Planten innerhalb des Zeitfensters möglich. Andere Plugins mit Plant-Deadline oder eigenem Runden-Abbruch ebenfalls deaktivieren. Die normale Bombenzeit mp_c4timer wird nicht verändert.
+7. Die neuen Schlüssel in der bestehenden **Config**-Gruppe ergänzen; bei einer flachen Konfiguration entsprechend auf oberster Ebene:
 
 ~~~json
-"ApplySelectionsOnNextSpawnOnly": true
-~~~
-
-Damit vergibt !gun während einer laufenden Runde keine neue Waffe. Änderungen gelten bei der folgenden regulären Retakes-Vergabe. Buy/Rebuy/Autobuy werden außerhalb des Warmups blockiert, damit sie diese Regel nicht umgehen. Mit false ist der frühere sofortige Wechselmodus wieder möglich.
-
-Die ursprünglichen **Pistol-/HalfBuy-/FullBuy-Rundentypen** bleiben erhalten. Eine FullBuy-Primary wird in FullBuy-Runden benutzt; HalfBuy und Pistol verwenden wie bisher die jeweiligen Präferenzen. Wenn ihr **in jeder Runde die ausgewählte FullBuy-Primary und Secondary** erhalten wollt, setzt in der bestehenden Allocator-Konfiguration:
-
-~~~json
-"RoundTypeSelection": "Random",
-"RoundTypePercentages": {
-  "Pistol": 0,
-  "HalfBuy": 0,
-  "FullBuy": 100
+{
+  "PlantTimerEnabled": true,
+  "PlantTimeSeconds": 10,
+  "ShowPlantCountdown": true,
+  "MenuFooter": "by Jumper",
+  "ApplySelectionsOnNextSpawnOnly": true,
+  "SharedSecondaryPreference": true,
+  "SecondaryFallbackWeapons": {
+    "Terrorist": "Deagle",
+    "CounterTerrorist": "Deagle"
+  }
 }
 ~~~
 
-Die normale Spawn-Vergabe verwendet das offizielle **AllocateEvent** von Retakes 3.0.2. Ausgerüstet werden nur verbundene, lebende T-/CT-Spieler mit gültigem Pawn. Spectators werden nicht ausgerüstet. Doppelte AllocateEvents innerhalb derselben Runde werden übersprungen.
+Diese Werte sind bereits die Standardwerte, wenn die Schlüssel fehlen. PlantTimeSeconds muss größer als 0 und höchstens 300 sein. EnableAwp bleibt im bisherigen AWP-Abschnitt; **0 sperrt AWP**. Weapons.UsableWeapons ist zusätzlich die verbindliche Waffenliste. Beide Prüfungen gelten gleichzeitig. Eine konfigurierte Ersatzpistole muss für das Team und in UsableWeapons erlaubt sein; andernfalls wird eine erlaubte Team-Pistole genommen. Gibt es keine, wird keine gesperrte Waffe ausgegeben.
 
-## Was die Absturzreparatur ändert
+8. Container vollständig neu starten. Nicht nur im laufenden Prozess die DLL austauschen. Zum Einschalten eines beim Start deaktivierten Plant-Timers ist ein Neustart notwendig, damit TerminateRound geprüft wird.
+9. Log auf **Connected to Retakes AllocateEvent** prüfen. Der optionale Buy-Hook meldet **CanAcquire hook attached using CounterStrikeSharp gamedata**. Fehlt sein Handle, bleibt er aus; Menü und reguläre Ausrüstung funktionieren weiter. Fehlt TerminateRound, wird der Plant-Timer mit einer eindeutigen Fehlermeldung deaktiviert.
+10. Den [Testplan](TESTPLAN-301.md) auf dem Server durchführen.
 
-- Die alten Plugin-Signaturen unterscheiden sich von CounterStrikeSharp 375. Plugin-lokale GameData und automatische Downloads vom archivierten Upstream werden nicht mehr eingelesen.
-- CanAcquire wird mit der ABI aus CounterStrikeSharp 375 aufgelöst: ItemServices, EconItemView, AcquireMethod, IntPtr, AcquireResult.
-- Vor dem Hooken wird sowohl CanAcquire als auch GetCSWeaponDataFromKey auf einen aufgelösten Handle geprüft. Ein Null-Handle gelangt niemals zu HookFunction.
-- Der Callback wird explizit über eine permanente CounterStrikeSharp FunctionReference gehalten. Beim Entladen wird zuerst der native Hook entfernt und erst danach die Callback-Referenz freigegeben.
-- Schlägt das Unhook fehl, bleibt die Callback-Referenz absichtlich erhalten und der Callback wird inaktiv. Das Log fordert dann einen Serverneustart. Eine möglicherweise noch native referenzierte Delegate wird nicht freigegeben.
-- Kein Hintergrund-Download kann einen Hook nach Unload erneut registrieren.
-- Der ungeprüfte GiveNamedItem2-Pfad wurde entfernt. Waffen werden über CounterStrikeSharps GiveNamedItem vergeben. Besondere Skin-Übernahme bei teamfremden Waffen wird dadurch nicht garantiert.
-- Waffen und Defuse-Kits werden innerhalb des offiziellen AllocateEvent vergeben, statt über spätere Spawn-Timer.
-- Menü-Timer und aktive Menüs werden bei Mapwechsel/Unload aufgeräumt.
-- PlayerConnectedState ist an die API 375 angepasst.
-- Das Datenbankschema und die bestehenden EF-Migrationen wurden nicht verändert.
+## Bedienung und Waffen
 
-Die alten Konfigurationsschlüssel **AutoUpdateSignatures** und **CapabilityWeaponPaints** bleiben einlesbar, sind in diesem Fork aber ohne Wirkung. Auch vorhandene Dateien unter **RetakesAllocator/gamedata/** werden ignoriert; sie müssen für dieses Update nicht gelöscht werden.
+**!guns**, **/guns** und **css_guns** öffnen das ursprüngliche Advanced Gun Menu im Center-HUD. W/S navigiert, E bestätigt, R geht zurück bzw. schließt das Hauptmenü. A/D wechselt im Primary-Untermenü zwischen CT und T. Gedrückt gehaltene Tasten lösen dieselbe Aktion nicht erneut aus. Die Hauptpunkte sind Primary Weapon, Secondary Weapon und Close. Die Auswahl wird angezeigt, mit E automatisch gespeichert und erst beim nächsten regulären Retakes-AllocateEvent ausgerüstet. In allen Menüseiten steht der konfigurierte Footer, standardmäßig **by Jumper**.
 
-**EnableCanAcquireHook** bleibt eine optionale Einstellung. Bei false wird kein eigener Native-Hook eingerichtet; das Menü und die reguläre Rundenvergabe funktionieren weiterhin. Die Änderung sollte beim Serverstart erfolgen. Ein Wechsel von false auf true per Config-Reload aktiviert keinen neuen Hook im laufenden Prozess.
+Primary enthält die erlaubten FullBuy-/HalfBuy-Waffen und gegebenenfalls erlaubte Preferred-Waffen. Die ursprünglichen Pistol-/HalfBuy-/FullBuy-Rundentypen bleiben erhalten. Für die ausgewählte FullBuy-Primary in jeder Runde setzt wie bisher RoundTypeSelection auf Random und RoundTypePercentages auf Pistol=0, HalfBuy=0, FullBuy=100. Halbkäufe verwenden die gespeicherte HalfBuy-Primary.
 
-## Nachweis und Grenzen
+Die neue gemeinsame Pistolenpräferenz wird für CT, T und Pistol-Rounds benutzt. Teamgebundene Pistolen verwenden auf der anderen Seite die sichere Ersatzwaffe. Es gibt kein separates Pistol-Round-Menü.
 
-Release-Build gegen CounterStrikeSharp.API **1.0.375** und RetakesPluginShared **2.0.0**: erfolgreich, keine Build-Warnungen oder Fehler.
+Es wurden **keine Tabellen/Spalten/Migrationen geändert**. Die gemeinsame Pistole wird im vorhandenen WeaponPreferences-JSON unter **None -> Secondary** gespeichert. Alte Team- und Rundentyp-Präferenzen bleiben unverändert vorhanden. Ohne neuen gemeinsamen Eintrag gilt deterministisch: CT Secondary, dann T Secondary, dann CT PistolRound, dann T PistolRound. Bei unterschiedlichen alten Werten entscheidet diese Reihenfolge; es wird beim Upgrade kein Wert gelöscht. Nach einer neuen Auswahl ersetzt der gemeinsame Eintrag die wirksame Pistole auf beiden Teams. SharedSecondaryPreference=false reaktiviert für die Vergabe/Befehle das alte getrennte Verhalten; die neue Menü-Pistolenauswahl ist für den gemeinsamen Modus vorgesehen.
 
-**50 Tests**: ursprüngliche Allocator-Tests plus neue Tests für Null-Handles, genau einmaliges Attach/Detach, teilweise fehlgeschlagene Registrierung, fehlgeschlagenes Unhook ohne Callback-Freigabe sowie gespeicherte CT/T-Auswahl nach erneutem Datenbanköffnen.
+## Timer, HUD und Kompatibilität
 
-Die Tests ersetzen keinen CS2-Prozess: Die tatsächliche Hook-Installation, das Menü im Spiel und das Verhalten bei Server-/Map-Neustarts müssen noch auf eurem Dedicated Server bestätigt werden. Der Fehler „Invalid function pointer“ ist durch den ungeprüften Null-Handle-Pfad im alten Code erklärt. Der genaue Auslöser des späteren GC-Delegate-Absturzes lässt sich ohne vollständigen Crash-Dump nicht endgültig bestimmen; die problematischen Lebenszykluspfade werden hier abgesichert.
+Der Plant-Timer startet nach **round_freeze_end**, ausschließlich in einer durch das Retakes-AllocateEvent aktivierten Runde mit lebenden CTs und Ts, außerhalb des Warmups. Er endet beim **erfolgreichen** bomb_planted, nicht schon bei bomb_beginplant. Nach 10 Sekunden ohne erfolgreichen Plant wird über **CCSGameRules.TerminateRound(0.1f, CTsWin)** beendet. Plant-Timer, Countdown und Bombsite-HUD werden bei Rundenende, Mapwechsel und Unload beendet. Countdown und geöffnetes Waffenmenü teilen sich eine einzige HUD-Nachricht; die Bombsite-Anzeige wird dabei unterdrückt. HUD-Ausgaben sind auf vier Aktualisierungen pro Sekunde und Spieler begrenzt. Zum Beenden wird einmal geleert.
 
-Kurzer Test nach dem Neustart:
-1. Server startet ohne Native-Hook-/Delegate-Fehler.
-2. !guns öffnen und CT/T-Waffen speichern.
-3. Laufende Runde: Waffen bleiben unverändert; nächste FullBuy-Runde: gespeicherte Auswahl.
-4. Spectator bleibt ohne Ausrüstung.
-5. Reconnect und Container-Neustart: Auswahl bleibt erhalten.
-6. Mapwechsel und Allocator-Unload/Reload ohne verwaiste Callbacks.
+Die Native-Hook-Reparatur aus dem vorherigen Fork bleibt enthalten: kanonische CSS375-Signaturen, Null-Handle-Prüfung und explizite Callback-Referenz bis zum erfolgreichen Unhook. AutoUpdateSignatures und CapabilityWeaponPaints bleiben ohne Wirkung; alte Plugin-GameData wird ignoriert. Der ungeprüfte GiveNamedItem2-Pfad bleibt entfernt. Besondere Skin-Übernahme für teamfremde Waffen wird nicht garantiert.
 
-Der konfigurierbare Bomb-Plant-Timer (Standard 10 Sekunden) ist **noch nicht Bestandteil dieses Updates**.
+Der Build verwendet .NET 10, CounterStrikeSharp.API 1.0.375 und RetakesPluginShared 2.0.0. Host-/Shared-DLLs werden nicht mitgeliefert. Das Paket enthält die eigenen Abhängigkeiten und Linux-x64-SQLite, auch wenn auf dem Server MySQL verwendet wird.
 
-## Quellen
+## Prüfung und Grenzen
 
-- [Allocator v2.4.2](https://github.com/yonilerner/cs2-retakes-allocator/tree/v2.4.2)
-- [CounterStrikeSharp 375](https://github.com/roflmuffin/CounterStrikeSharp/releases/tag/v1.0.375)
-- [CSSharp-Anpassungen an CS2 1.41.8.2](https://github.com/roflmuffin/CounterStrikeSharp/pull/1433)
-- [Retakes 3.0.2: Ausrüstungsereignis](https://github.com/B3none/cs2-retakes/blob/3.0.2/RetakesPlugin/Events/RoundEventHandlers.cs)
-- [Valve: CS2-Update vom 22. September 2026](https://store.steampowered.com/news/app/730/view/1844751498216924)
+Release-Build und automatisierte Regressionstests werden lokal und im Linux-CI ausgeführt. Linux-CI testet zusätzlich gegen MySQL 8 eine vorhandene UserSettings-Tabelle mit alten Präferenzen und die gemeinsame Auswahl ohne Schemaänderung. Das ist kein Starttest in einem echten CS2-Prozess. Menüdarstellung, Native-Hooks, Grenzfälle des Plant-Events und die Netzkanal-Stabilität sind auf eurem Server anhand des Testplans zu bestätigen. Es wurden keine Änderungen auf eurem Server vorgenommen.
+
+Quellen: [CSS375](https://github.com/roflmuffin/CounterStrikeSharp/releases/tag/v1.0.375), [Retakes 3.0.2](https://github.com/B3none/cs2-retakes/tree/3.0.2), [Instaplant-Quellcode](https://github.com/B3none/cs2-instaplant/blob/master/InstaplantPlugin.cs).

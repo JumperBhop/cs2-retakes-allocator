@@ -63,6 +63,14 @@ public class UserSetting
 
         return null;
     }
+
+    // Stored inside the existing JSON column, without changing MySQL/SQLite tables.
+    public CsItem? GetSharedSecondaryPreference() =>
+        GetWeaponPreference(CsTeam.None, WeaponAllocationType.Secondary) ??
+        GetWeaponPreference(CsTeam.CounterTerrorist, WeaponAllocationType.Secondary) ??
+        GetWeaponPreference(CsTeam.Terrorist, WeaponAllocationType.Secondary) ??
+        GetWeaponPreference(CsTeam.CounterTerrorist, WeaponAllocationType.PistolRound) ??
+        GetWeaponPreference(CsTeam.Terrorist, WeaponAllocationType.PistolRound);
 }
 
 public class CsItemConverter : ValueConverter<CsItem?, string>

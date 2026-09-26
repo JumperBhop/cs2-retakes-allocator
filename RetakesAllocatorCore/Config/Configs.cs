@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.Json.Nodes;
 using CounterStrikeSharp.API.Modules.Entities.Constants;
 using CounterStrikeSharp.API.Modules.Utils;
 using Microsoft.Extensions.Logging;
@@ -27,6 +28,7 @@ public static class Configs
         WriteIndented = true,
         AllowTrailingCommas = true,
         ReadCommentHandling = JsonCommentHandling.Skip,
+        PropertyNameCaseInsensitive = true,
     };
 
     public static bool IsLoaded()
@@ -52,8 +54,7 @@ public static class Configs
         _configFilePath = Path.Combine(configFileDirectory, ConfigFileName);
         if (File.Exists(_configFilePath))
         {
-            _configData =
-                JsonSerializer.Deserialize<ConfigData>(File.ReadAllText(_configFilePath), SerializationOptions);
+            _configData = ParseConfig(File.ReadAllText(_configFilePath));
         }
         else
         {
@@ -65,7 +66,7 @@ public static class Configs
             throw new Exception("Failed to load configs.");
         }
 
-        if (saveAfterLoad)
+        if (saveAfterLoad && !File.Exists(_configFilePath))
         {
             SaveConfigData(_configData);
         }
@@ -73,6 +74,23 @@ public static class Configs
         _configData.Validate();
 
         return _configData;
+    }
+
+    public static ConfigData ParseConfig(string json)
+    {
+        var root = JsonNode.Parse(json, documentOptions: new JsonDocumentOptions
+        {
+            AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip
+        })?.AsObject() ?? throw new JsonException("Expected config object");
+        var merged = new JsonObject();
+        // Accept the existing grouped JSON as well as the upstream flat format.
+        foreach (var group in new[] { "Config", "Weapons", "AWP", "Database" })
+            if (root.FirstOrDefault(p => p.Key.Equals(group, StringComparison.OrdinalIgnoreCase)).Value is JsonObject section)
+                foreach (var property in section) merged[property.Key] = property.Value?.DeepClone();
+        foreach (var property in root)
+            if (!new[] { "Config", "Weapons", "AWP", "Database" }.Contains(property.Key, StringComparer.OrdinalIgnoreCase))
+                merged[property.Key] = property.Value?.DeepClone();
+        return merged.Deserialize<ConfigData>(SerializationOptions) ?? throw new JsonException("Invalid config");
     }
 
     public static ConfigData OverrideConfigDataForTests(
@@ -233,6 +251,17 @@ public record ConfigData
     public bool ResetStateOnGameRestart { get; set; } = true;
     public bool AllowAllocationAfterFreezeTime { get; set; } = true;
     public bool ApplySelectionsOnNextSpawnOnly { get; set; } = true;
+    public bool SharedSecondaryPreference { get; set; } = true;
+    public int EnableAwp { get; set; } = 1;
+    public bool PlantTimerEnabled { get; set; } = true;
+    public float PlantTimeSeconds { get; set; } = 10;
+    public bool ShowPlantCountdown { get; set; } = true;
+    public string MenuFooter { get; set; } = "by Jumper";
+    public Dictionary<CsTeam, CsItem> SecondaryFallbackWeapons { get; set; } = new()
+    {
+        [CsTeam.Terrorist] = CsItem.Deagle,
+        [CsTeam.CounterTerrorist] = CsItem.Deagle
+    };
     public bool UseOnTickFeatures { get; set; } = true;
     public bool CapabilityWeaponPaints { get; set; } = false; // Legacy: ignored; CSS GiveNamedItem is used.
     public bool EnableRoundTypeAnnouncement { get; set; } = true;
@@ -280,6 +309,10 @@ public record ConfigData
 
     public IList<string> Validate()
     {
+        if (!float.IsFinite(PlantTimeSeconds) || PlantTimeSeconds <= 0 || PlantTimeSeconds > 300)
+            throw new Exception("PlantTimeSeconds must be between 0 and 300 seconds (exclusive zero).");
+        if (string.IsNullOrWhiteSpace(MenuFooter)) MenuFooter = "by Jumper";
+        if (MenuFooter.Length > 80) throw new Exception("MenuFooter must not exceed 80 characters.");
         if (RoundTypePercentages.Values.Sum() != 100)
         {
             throw new Exception("'RoundTypePercentages' values must add up to 100");

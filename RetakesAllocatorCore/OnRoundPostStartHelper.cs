@@ -1,4 +1,4 @@
-﻿using CounterStrikeSharp.API.Modules.Entities.Constants;
+using CounterStrikeSharp.API.Modules.Entities.Constants;
 using CounterStrikeSharp.API.Modules.Utils;
 using RetakesAllocatorCore.Config;
 using RetakesAllocatorCore.Db;
@@ -54,7 +54,8 @@ public class OnRoundPostStartHelper
         HashSet<T> FilterByPreferredWeaponPreference(IEnumerable<T> ps) =>
             ps.Where(p =>
                     userSettingsByPlayerId.TryGetValue(getSteamId(p), out var userSetting) &&
-                    userSetting.GetWeaponPreference(getTeam(p), WeaponAllocationType.Preferred) is not null)
+                    userSetting.GetWeaponPreference(getTeam(p), WeaponAllocationType.Preferred) is { } preferred &&
+                    WeaponHelpers.IsWeaponAllowedForTeam(preferred, getTeam(p)))
                 .ToHashSet();
 
         ICollection<T> tPreferredPlayers = new List<T>();

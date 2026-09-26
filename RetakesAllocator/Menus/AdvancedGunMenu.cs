@@ -1,719 +1,198 @@
+using System.Net;
+using System.Text;
+using CounterStrikeSharp.API;
 using CounterStrikeSharp.API.Core;
 using CounterStrikeSharp.API.Modules.Entities.Constants;
 using CounterStrikeSharp.API.Modules.Utils;
 using RetakesAllocatorCore;
-using CounterStrikeSharp.API;
-using System.Text;
-using RetakesAllocator.Menus;
 using RetakesAllocatorCore.Config;
-using static RetakesAllocatorCore.PluginInfo;
-using CounterStrikeSharp.API.Modules.Events;
+using RetakesAllocatorCore.Db;
 
 namespace RetakesAllocator.AdvancedMenus;
 
+// The allocator's existing center-HUD menu, with bounded rendering and edge-based input.
 public class AdvancedGunMenu
 {
-    public Dictionary<ulong, bool> menuon = new Dictionary<ulong, bool>();
-    public Dictionary<ulong, int> mainmenu = new Dictionary<ulong, int>();
-    public Dictionary<ulong, int> currentIndexDict = new Dictionary<ulong, int>();
-    public Dictionary<ulong, bool> buttonPressed = new Dictionary<ulong, bool>();
-    private static void Print(CCSPlayerController player, string message)
+    private sealed class Session
     {
-        Helpers.WriteNewlineDelimited(message, player.PrintToChat);
+        public CCSPlayerController Player = null!;
+        public readonly MenuInput Input = new();
+        public int Page;
+        public int Index;
+        public CsTeam Team;
+        public UserSetting? Preferences;
+        public bool Saving;
+        public string Status = "";
+        public bool Loading = true;
     }
-    public HookResult OnEventPlayerChat(EventPlayerChat @event, GameEventInfo info)
+    private readonly Dictionary<ulong, Session> _sessions = new();
+    public bool IsOpen(CCSPlayerController player) => _sessions.ContainsKey(player.SteamID);
+
+    public void Open(CCSPlayerController player)
     {
-        if(@event == null)return HookResult.Continue;
-        var eventplayer = @event.Userid;
-        var eventmessage = @event.Text;
-        var player = Utilities.GetPlayerFromUserid(eventplayer);
-        
-        if (player == null || !player.IsValid)return HookResult.Continue;
-        var playerid = player.SteamID;
-
-        if (string.IsNullOrWhiteSpace(eventmessage)) return HookResult.Continue;
-        string trimmedMessageStart = eventmessage.TrimStart();
-        string message = trimmedMessageStart.TrimEnd();
-        string[] CenterMenuCommands = Configs.GetConfigData().InGameGunMenuCenterCommands.Split(',');
-
-        if (CenterMenuCommands.Any(cmd => cmd.Equals(message, StringComparison.OrdinalIgnoreCase)))
+        if (!Helpers.PlayerIsValid(player) || player.IsBot || player.IsHLTV || Helpers.GetSteamId(player) == 0) return;
+        CounterStrikeSharp.API.Modules.Menu.MenuManager.CloseActiveMenu(player);
+        var session = new Session
         {
-            if (!menuon.ContainsKey(playerid))
-            {
-                menuon.Add(playerid, true);
-            }
-            if (!mainmenu.ContainsKey(playerid))
-            {
-                mainmenu.Add(playerid, 0);
-            }
-            if (!currentIndexDict.ContainsKey(playerid))
-            {
-                currentIndexDict.Add(playerid, 0);
-            }
-            if (!buttonPressed.ContainsKey(playerid))
-            {
-                buttonPressed.Add(playerid, false);
-            }
-        }
-        return HookResult.Continue;
+            Player = player,
+            Team = player.Team == CsTeam.Terrorist ? CsTeam.Terrorist : CsTeam.CounterTerrorist
+        };
+        session.Input.Initialize((ulong)player.Buttons);
+        var id = player.SteamID;
+        _sessions[id] = session;
+        _ = Task.Run(() => LoadPreferencesAsync(id, session));
     }
+
+    private async Task LoadPreferencesAsync(ulong id, Session session)
+    {
+        try
+        {
+            var preferences = await Queries.GetUserSettings(id);
+            Server.NextFrame(() =>
+            {
+                if (!_sessions.TryGetValue(id, out var current) || !ReferenceEquals(current, session)) return;
+                session.Preferences = preferences;
+                session.Loading = false;
+            });
+        }
+        catch (Exception error)
+        {
+            Log.Error($"Menu preference load failed: {error.Message}");
+            Server.NextFrame(() =>
+            {
+                if (!_sessions.TryGetValue(id, out var current) || !ReferenceEquals(current, session)) return;
+                session.Status = "Could not load preferences. Reopen !guns to retry.";
+            });
+        }
+    }
+
+    public void Close(CCSPlayerController player, bool clearHud = true)
+    {
+        if (_sessions.Remove(player.SteamID) && clearHud && Helpers.PlayerIsValid(player))
+            player.PrintToCenterHtml("", 0);
+    }
+
+    public void Reset()
+    {
+        foreach (var session in _sessions.Values.ToArray())
+            if (Helpers.PlayerIsValid(session.Player)) session.Player.PrintToCenterHtml("", 0);
+        _sessions.Clear();
+    }
+
+    private static List<CsItem> Choices(Session session) => session.Page switch
+    {
+        1 => WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.FullBuyPrimary, session.Team)
+            .Concat(WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.HalfBuyPrimary, session.Team))
+            .Concat(WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.Preferred, session.Team))
+            .Distinct().ToList(),
+        2 => WeaponHelpers.GetSharedPistols().ToList(),
+        _ => new()
+    };
 
     public void OnTick()
     {
-        var playerEntities = Utilities.FindAllEntitiesByDesignerName<CCSPlayerController>("cs_player_controller");
-        foreach (var player in playerEntities)
+        foreach (var (id, session) in _sessions.ToArray())
         {
-            if (player == null || !player.IsValid || !player.PawnIsAlive || player.IsBot || player.IsHLTV) continue;
-            
-            var playerid = player.SteamID;
-            if (menuon.ContainsKey(playerid))
+            var player = session.Player;
+            if (!Helpers.PlayerIsValid(player) || player.Connected != PlayerConnectedState.Connected)
             {
-                string Imageleft = string.IsNullOrEmpty(Translator.Instance["menu.left.image"]) ? "" : Translator.Instance["menu.left.image"];
-                string ImageRight = string.IsNullOrEmpty(Translator.Instance["menu.right.image"]) ? "" : Translator.Instance["menu.right.image"];
-                string BottomMenu = string.IsNullOrEmpty(Translator.Instance["menu.bottom.text"]) ? "" : Translator.Instance["menu.bottom.text"];
-                string BottomMenuOnpistol = string.IsNullOrEmpty(Translator.Instance["menu.bottom.text.pistol"]) ? "" : Translator.Instance["menu.bottom.text.pistol"];
-
-                string[] Main = { 
-                    string.IsNullOrEmpty(Translator.Instance["menu.main.tloadout"]) ? "█░ T Loadout ░█" : Translator.Instance["menu.main.tloadout"], 
-                    string.IsNullOrEmpty(Translator.Instance["menu.main.ctloadout"]) ? "█░ CT Loadout ░█" : Translator.Instance["menu.main.ctloadout"], 
-                    string.IsNullOrEmpty(Translator.Instance["menu.main.awp"]) ? "█░ AWP ░█" : Translator.Instance["menu.main.awp"]
-                };
-
-                List<string> TFullBuyList = new List<string>();
-                List<string> TSecondaryList = new List<string>();
-                List<string> THalfBuyList = new List<string>();
-                List<string> TPistolRoundList = new List<string>();
-
-                List<string> CTFullBuyList = new List<string>();
-                List<string> CTSecondaryList = new List<string>();
-                List<string> CTHalfBuyList = new List<string>();
-                List<string> CTPistolRoundList = new List<string>();
-
-                string[] Tloadout = { 
-                    string.IsNullOrEmpty(Translator.Instance["menu.tprimary"]) ? "█ T Primary █" : Translator.Instance["menu.tprimary"], 
-                    string.IsNullOrEmpty(Translator.Instance["menu.tsecondary"]) ? "█ T Secondary █" : Translator.Instance["menu.tsecondary"],
-                    string.IsNullOrEmpty(Translator.Instance["menu.tPistol"]) ? "█ T Pistol Round █" : Translator.Instance["menu.tPistol"],
-                    string.IsNullOrEmpty(Translator.Instance["menu.tHalfbuy"]) ? "█ T Half Buy █" : Translator.Instance["menu.tHalfbuy"]
-                };
-                
-                string[] CTloadout = { 
-                    string.IsNullOrEmpty(Translator.Instance["menu.ctprimary"]) ? "█ CT Primary █" : Translator.Instance["menu.ctprimary"], 
-                    string.IsNullOrEmpty(Translator.Instance["menu.ctsecondary"]) ? "█ CT Secondary █" : Translator.Instance["menu.ctsecondary"], 
-                    string.IsNullOrEmpty(Translator.Instance["menu.ctPistol"]) ? "█ CT Pistol Round █" : Translator.Instance["menu.ctPistol"],
-                    string.IsNullOrEmpty(Translator.Instance["menu.ctHalfbuy"]) ? "█ CT Half Buy █" : Translator.Instance["menu.ctHalfbuy"]
-                };
-
-                string[] AWP = { 
-                    string.IsNullOrEmpty(Translator.Instance["menu.awp.always"]) ? "Always" : Translator.Instance["menu.awp.always"], 
-                    string.IsNullOrEmpty(Translator.Instance["menu.awp.never"]) ? "Never" : Translator.Instance["menu.awp.never"]
-                };
-
-
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.FullBuyPrimary, CsTeam.Terrorist))
+                _sessions.Remove(id);
+                continue;
+            }
+            var pressed = (PlayerButtons)session.Input.RisingEdges((ulong)player.Buttons);
+            if ((pressed & PlayerButtons.Reload) != 0)
+            {
+                if (session.Page == 0) Close(player);
+                else { session.Page = 0; session.Index = 0; }
+                continue;
+            }
+            if (session.Saving || session.Loading) continue;
+            var choices = Choices(session);
+            var count = session.Page == 0 ? 3 : choices.Count;
+            if (count == 0) { session.Index = 0; continue; }
+            session.Index = Math.Clamp(session.Index, 0, count - 1);
+            if ((pressed & PlayerButtons.Forward) != 0) session.Index = (session.Index + count - 1) % count;
+            else if ((pressed & PlayerButtons.Back) != 0) session.Index = (session.Index + 1) % count;
+            else if (session.Page == 1 && (pressed & (PlayerButtons.Moveleft | PlayerButtons.Moveright)) != 0)
+            {
+                session.Team = session.Team == CsTeam.Terrorist ? CsTeam.CounterTerrorist : CsTeam.Terrorist;
+                session.Index = 0;
+            }
+            else if ((pressed & PlayerButtons.Use) != 0)
+            {
+                if (session.Page == 0)
                 {
-                    TFullBuyList.Add(weapon.GetName());
+                    if (session.Index == 2) Close(player);
+                    else { session.Page = session.Index + 1; session.Index = 0; }
                 }
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.Secondary, CsTeam.Terrorist))
+                else
                 {
-                    TSecondaryList.Add(weapon.GetName());
+                    session.Saving = true;
+                    var weapon = choices[session.Index];
+                    var page = session.Page;
+                    var team = session.Team;
+                    _ = Task.Run(() => SaveAsync(id, session, weapon, page, team));
                 }
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.HalfBuyPrimary, CsTeam.Terrorist))
-                {
-                    THalfBuyList.Add(weapon.GetName());
-                }
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.PistolRound, CsTeam.Terrorist))
-                {
-                    TPistolRoundList.Add(weapon.GetName());
-                }
-
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.FullBuyPrimary, CsTeam.CounterTerrorist))
-                {
-                    CTFullBuyList.Add(weapon.GetName());
-                }
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.Secondary, CsTeam.CounterTerrorist))
-                {
-                    CTSecondaryList.Add(weapon.GetName());
-                }
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.HalfBuyPrimary, CsTeam.CounterTerrorist))
-                {
-                    CTHalfBuyList.Add(weapon.GetName());
-                }
-                foreach (var weapon in WeaponHelpers.GetPossibleWeaponsForAllocationType(WeaponAllocationType.PistolRound, CsTeam.CounterTerrorist))
-                {
-                    CTPistolRoundList.Add(weapon.GetName());
-                }
-
-                string[] TFullBuy = TFullBuyList.ToArray();
-                string[] TSecondary = TSecondaryList.ToArray();
-                string[] THalfBuy = THalfBuyList.ToArray();
-                string[] TPistolRound = TPistolRoundList.ToArray();
-
-                string[] CTFullBuy = CTFullBuyList.ToArray();
-                string[] CTSecondary = CTSecondaryList.ToArray();
-                string[] CTHalfBuy = CTHalfBuyList.ToArray();
-                string[] CTPistolRound = CTPistolRoundList.ToArray();
-
-                if (player.Buttons == 0)
-                {
-                    buttonPressed[playerid] = false;
-                }
-                else if (player.Buttons == PlayerButtons.Back && !buttonPressed[playerid])
-                {
-                    if (mainmenu[playerid] == 0)//main
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == Main.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-
-                    if (mainmenu[playerid] == 1)//T loadout
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == Tloadout.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 2)//T Primary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == TFullBuy.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 3)//T Secondary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == TSecondary.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 4)//T Pistol Round
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == TPistolRound.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 10)//T Half Buy
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == THalfBuy.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-
-                    if (mainmenu[playerid] == 5)//CT loadout
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == CTloadout.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 6)//CT Primary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == CTFullBuy.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 7)//CT Secondary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == CTSecondary.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 8)//CT Pistol Round
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == CTPistolRound.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-
-                    if (mainmenu[playerid] == 9)//AWP loadout
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == AWP.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    if (mainmenu[playerid] == 11)//CT Half Buy
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == CTHalfBuy.Length - 1) ? 0 : currentIndexDict[playerid] + 1;
-                    }
-                    
-                    buttonPressed[playerid] = true;
-                    player.ExecuteClientCommand("play sounds/ui/csgo_ui_contract_type4.vsnd_c");
-                }
-                else if (player.Buttons == PlayerButtons.Forward && !buttonPressed[playerid])
-                {
-                    if (mainmenu[playerid] == 0)//main
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? Main.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-
-                    if (mainmenu[playerid] == 1)//T loadout
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? Tloadout.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 2)//T Primary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? TFullBuy.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 3)//T Secondary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? TSecondary.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 4)//T Pistol Round
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? TPistolRound.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 10)//T Half Buy
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? THalfBuy.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-
-                    if (mainmenu[playerid] == 5)//CT loadout
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? CTloadout.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 6)//CT Primary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? CTFullBuy.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 7)//CT Secondary
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? CTSecondary.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 8)//CT Pistol Round
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? CTPistolRound.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-
-                    if (mainmenu[playerid] == 9)//AWP loadout
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? AWP.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    if (mainmenu[playerid] == 11)//CT Half Buy
-                    {
-                        currentIndexDict[playerid] = (currentIndexDict[playerid] == 0) ? CTHalfBuy.Length - 1 : currentIndexDict[playerid] - 1;
-                    }
-                    
-                    buttonPressed[playerid] = true;
-                    player.ExecuteClientCommand("play sounds/ui/csgo_ui_contract_type4.vsnd_c");
-                }else if ((player.Buttons == PlayerButtons.Moveleft || player.Buttons == PlayerButtons.Moveright) && !buttonPressed[playerid])
-                {
-                    int currentLineIndex = currentIndexDict[playerid];
-
-                    if (mainmenu[playerid] == 2)
-                    {
-                        string currentLineTFullBuy = TFullBuy[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.Terrorist, currentLineTFullBuy);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineTFullBuy, Utils.TeamString(CsTeam.Terrorist),Translator.Instance["weapon_type.primary"]]);
-                    }
-                    if (mainmenu[playerid] == 3)
-                    {
-                        string currentLineTSec = TSecondary[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.Terrorist, currentLineTSec, RoundType.FullBuy);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineTSec, Utils.TeamString(CsTeam.Terrorist),Translator.Instance["weapon_type.secondary"]]);
-                    }
-                    if (mainmenu[playerid] == 4)
-                    {
-                        string currentLineTPR = TPistolRound[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.Terrorist, currentLineTPR);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineTPR, Utils.TeamString(CsTeam.Terrorist),Translator.Instance["roundtype.Pistol"]]);
-                    }
-                    if (mainmenu[playerid] == 10)
-                    {
-                        string currentLineTHalf = THalfBuy[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.Terrorist, currentLineTHalf);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineTHalf, Utils.TeamString(CsTeam.Terrorist),Translator.Instance["roundtype.HalfBuy"]]);
-                    }
-                    if (mainmenu[playerid] == 11)
-                    {
-                        string currentLineCTHalf = CTHalfBuy[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.CounterTerrorist, currentLineCTHalf);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineCTHalf, Utils.TeamString(CsTeam.CounterTerrorist),Translator.Instance["roundtype.HalfBuy"]]);
-                    }
-
-                    if (mainmenu[playerid] == 6)
-                    {
-                        string currentLineCTFullBuy = CTFullBuy[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.CounterTerrorist, currentLineCTFullBuy);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineCTFullBuy, Utils.TeamString(CsTeam.CounterTerrorist),Translator.Instance["weapon_type.primary"]]);
-                    }
-                    if (mainmenu[playerid] == 7)
-                    {
-                        string currentLineCTSec = CTSecondary[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.CounterTerrorist, currentLineCTSec, RoundType.FullBuy);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineCTSec, Utils.TeamString(CsTeam.CounterTerrorist),Translator.Instance["weapon_type.secondary"]]);
-                    }
-                    if (mainmenu[playerid] == 8)
-                    {
-                        string currentLineCTPR = CTPistolRound[currentLineIndex];
-                        GunsMenu.HandlePreferenceSelection(player, CsTeam.CounterTerrorist, currentLineCTPR);
-                        Print(player, Translator.Instance["guns_menu.weapon_selected",currentLineCTPR, Utils.TeamString(CsTeam.CounterTerrorist),Translator.Instance["roundtype.Pistol"]]);
-                    }
-
-                    if (mainmenu[playerid] == 9)
-                    {
-                        string currentLineName = AWP[currentLineIndex];
-                        if (currentLineName == AWP[0])
-                        {
-                            GunsMenu.HandlePreferenceSelection(player, CsTeam.Terrorist, CsItem.AWP.ToString(), remove: false);
-                            Print(player, Translator.Instance["guns_menu.awp_preference_selected",currentLineName]);
-                        }
-                        if (currentLineName == AWP[1])
-                        {
-                            GunsMenu.HandlePreferenceSelection(player, CsTeam.Terrorist, CsItem.AWP.ToString(), remove: true);
-                            Print(player, Translator.Instance["guns_menu.awp_preference_selected",currentLineName]);
-                        }
-                    }
-
-                    if (mainmenu[playerid] == 5)
-                    {
-                        string currentLineName = CTloadout[currentLineIndex];
-                        if (currentLineName == CTloadout[0])
-                        {
-                            mainmenu[playerid] = 6;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (currentLineName == CTloadout[1])
-                        {
-                            mainmenu[playerid] = 7;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (currentLineName == CTloadout[2])
-                        {
-                            mainmenu[playerid] = 8;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (CTHalfBuy.Length > 0 && currentLineName == CTloadout[3])
-                        {
-                            mainmenu[playerid] = 11;
-                            currentIndexDict[playerid] = 0;
-                        }
-                    }
-                    if (mainmenu[playerid] == 1)
-                    {
-                        string currentLineName = Tloadout[currentLineIndex];
-                        if (currentLineName == Tloadout[0])
-                        {
-                            mainmenu[playerid] = 2;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (currentLineName == Tloadout[1])
-                        {
-                            mainmenu[playerid] = 3;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (currentLineName == Tloadout[2])
-                        {
-                            mainmenu[playerid] = 4;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (THalfBuy.Length > 0 && currentLineName == Tloadout[3])
-                        {
-                            mainmenu[playerid] = 10;
-                            currentIndexDict[playerid] = 0;
-                        }
-                    }
-                    if (mainmenu[playerid] == 0)
-                    {
-                        string currentLineName = Main[currentLineIndex];
-                        if (currentLineName == Main[0])
-                        {
-                            mainmenu[playerid] = 1;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (currentLineName == Main[1])
-                        {
-                            mainmenu[playerid] = 5;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (currentLineName == Main[2])
-                        {
-                            mainmenu[playerid] = 9;
-                            currentIndexDict[playerid] = 0;
-                        }
-                    }
-                    buttonPressed[playerid] = true;
-                    player.ExecuteClientCommand("play sounds/ui/item_sticker_select.vsnd_c");
-                }
-                else if ((long)player.Buttons == 8589934592 && !buttonPressed[playerid])
-                {
-                    if (mainmenu[playerid] == 0)
-                    {
-                        if (currentIndexDict.ContainsKey(playerid))
-                        {
-                            currentIndexDict.Remove(playerid);
-                        }
-                        if(buttonPressed.ContainsKey(playerid))
-                        {
-                            buttonPressed.Remove(playerid);
-                        }
-                        if(mainmenu.ContainsKey(playerid))
-                        {
-                            mainmenu.Remove(playerid);
-                        }
-                        if(menuon.ContainsKey(playerid))
-                        {
-                            menuon.Remove(playerid);
-                        }
-                    }
-
-                    if(mainmenu.ContainsKey(playerid))
-                    {
-                        if (mainmenu[playerid] == 1)
-                        {
-                            mainmenu[playerid] = 0;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 5)
-                        {
-                            mainmenu[playerid] = 0;
-                            currentIndexDict[playerid] = 0;
-                        }
-
-                        if (mainmenu[playerid] == 2)
-                        {
-                            mainmenu[playerid] = 1;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 3)
-                        {
-                            mainmenu[playerid] = 1;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 4)
-                        {
-                            mainmenu[playerid] = 1;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 10)
-                        {
-                            mainmenu[playerid] = 1;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 11)
-                        {
-                            mainmenu[playerid] = 1;
-                            currentIndexDict[playerid] = 0;
-                        }
-
-                        if (mainmenu[playerid] == 6)
-                        {
-                            mainmenu[playerid] = 5;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 7)
-                        {
-                            mainmenu[playerid] = 5;
-                            currentIndexDict[playerid] = 0;
-                        }
-                        if (mainmenu[playerid] == 8)
-                        {
-                            mainmenu[playerid] = 5;
-                            currentIndexDict[playerid] = 0;
-                        }
-
-                        if (mainmenu[playerid] == 9)
-                        {
-                            mainmenu[playerid] = 0;
-                            currentIndexDict[playerid] = 0;
-                        }
-                    }
-                    buttonPressed[playerid] = true;
-                    player.ExecuteClientCommand("play sounds/ui/menu_focus.vsnd_c");
-                }
-
-                StringBuilder builder = new StringBuilder();
-                if (mainmenu.ContainsKey(playerid))
-                {
-                    if(mainmenu[playerid] == 0)
-                    {
-                        for (int i = 0; i < Main.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid])
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {Main[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{Main[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-
-                    if(mainmenu[playerid] == 1)
-                    {
-                        for (int i = 0; i < Tloadout.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {Tloadout[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{Tloadout[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-                    if(mainmenu[playerid] == 5)
-                    {
-                        for (int i = 0; i < CTloadout.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {CTloadout[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{CTloadout[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-                    if(mainmenu[playerid] == 9)
-                    {
-                        for (int i = 0; i < AWP.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {AWP[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{AWP[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-
-                    if(mainmenu[playerid] == 2)
-                    {
-                        for (int i = 0; i < TFullBuy.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {TFullBuy[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{TFullBuy[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-                    if(mainmenu[playerid] == 3)
-                    {
-                        for (int i = 0; i < TSecondary.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {TSecondary[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{TSecondary[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenuOnpistol);
-                    }
-                    if(mainmenu[playerid] == 4)
-                    {
-                        for (int i = 0; i < TPistolRound.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {TPistolRound[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{TPistolRound[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenuOnpistol);
-                    }
-                    if(mainmenu[playerid] == 10)
-                    {
-                        for (int i = 0; i < THalfBuy.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {THalfBuy[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{THalfBuy[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-                    if(mainmenu[playerid] == 11)
-                    {
-                        for (int i = 0; i < CTHalfBuy.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {CTHalfBuy[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{CTHalfBuy[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-
-                    if(mainmenu[playerid] == 6)
-                    {
-                        for (int i = 0; i < CTFullBuy.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {CTFullBuy[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{CTFullBuy[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenu);
-                    }
-                    if(mainmenu[playerid] == 7)
-                    {
-                        for (int i = 0; i < CTSecondary.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {CTSecondary[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{CTSecondary[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenuOnpistol);
-                    }
-                    if(mainmenu[playerid] == 8)
-                    {
-                        for (int i = 0; i < CTPistolRound.Length; i++)
-                        {
-                            if (i == currentIndexDict[playerid]) 
-                            {
-                                string lineHtml = $"<font color='orange'>{Imageleft} {CTPistolRound[i]} {ImageRight}</font><br>";
-                                builder.AppendLine(lineHtml);
-                            }
-                            else
-                            {
-                                builder.AppendLine($"<font color='white'>{CTPistolRound[i]}</font><br>");
-                            }
-                        }
-                        builder.AppendLine(BottomMenuOnpistol);
-                    }
-                    
-                }
-                builder.AppendLine("</div>");
-                var centerhtml = builder.ToString();
-                player?.PrintToCenterHtml(centerhtml);
             }
         }
     }
-    public HookResult OnEventPlayerDisconnect(EventPlayerDisconnect @event, GameEventInfo info)
+
+    private async Task SaveAsync(ulong id, Session session, CsItem weapon, int page, CsTeam team)
     {
-        if (@event == null) return HookResult.Continue;
-        var player = @event.Userid;
+        string status;
+        UserSetting? preferences = session.Preferences;
+        try
+        {
+            if (!Configs.GetConfigData().CanPlayersSelectWeapons() || !WeaponHelpers.IsUsableWeapon(weapon))
+                throw new InvalidOperationException("Weapon selection is disabled.");
+            if (page == 2) await Queries.SetSharedSecondaryPreferenceAsync(id, weapon);
+            else
+            {
+                var allocation = WeaponHelpers.GetWeaponAllocationTypeForWeaponAndRound(null, team, weapon);
+                if (allocation == null || !WeaponHelpers.IsWeaponAllowedForTeam(weapon, team))
+                    throw new InvalidOperationException("Weapon is unavailable.");
+                await Queries.SetWeaponPreferenceForUserAsync(id, team, allocation.Value, weapon);
+            }
+            status = $"Saved: {weapon.GetName()} — next Retake spawn";
+            preferences = await Queries.GetUserSettings(id);
+        }
+        catch (Exception error)
+        {
+            Log.Error($"Menu preference save failed: {error.Message}");
+            status = "Could not save selection.";
+        }
+        Server.NextFrame(() =>
+        {
+            if (!_sessions.TryGetValue(id, out var current) || !ReferenceEquals(current, session) ||
+                !Helpers.PlayerIsValid(session.Player)) return;
+            session.Preferences = preferences;
+            session.Status = status;
+            session.Saving = false;
+        });
+    }
 
-        if (player == null || !player.IsValid || player.IsBot || player.IsHLTV)return HookResult.Continue;
-        var playerid = player.SteamID;
-        menuon.Remove(playerid);
-        mainmenu.Remove(playerid);
-        currentIndexDict.Remove(playerid);
-        buttonPressed.Remove(playerid);
-
-        return HookResult.Continue;
+    public string? Render(CCSPlayerController player)
+    {
+        if (!_sessions.TryGetValue(player.SteamID, out var session)) return null;
+        static string Html(string text) => WebUtility.HtmlEncode(text);
+        static string Name(CsItem? item) => item == null ? "Default" :
+            WeaponHelpers.IsUsableWeapon(item.Value) ? item.Value.GetName() : "Unavailable (fallback)";
+        var builder = new StringBuilder("<b>Jumper Retakes | Guns</b><br>");
+        var savedPrimary = session.Preferences?.GetWeaponPreference(session.Team, WeaponAllocationType.FullBuyPrimary);
+        var savedHalf = session.Preferences?.GetWeaponPreference(session.Team, WeaponAllocationType.HalfBuyPrimary);
+        builder.Append($"Primary {session.Team}: {Html(Name(savedPrimary))} / HalfBuy: {Html(Name(savedHalf))}<br>");
+        builder.Append($"Secondary (CT + T): {Html(Name(session.Preferences?.GetSharedSecondaryPreference()))}<br>");
+        var rows = session.Page == 0 ? new List<string> { "Primary Weapon", "Secondary Weapon", "Close" }
+            : Choices(session).Select(weapon => weapon.GetName()).ToList();
+        if (rows.Count == 0) builder.Append("No enabled weapons<br>");
+        session.Index = rows.Count == 0 ? 0 : Math.Clamp(session.Index, 0, rows.Count - 1);
+        var start = Math.Max(0, Math.Min(session.Index - 2, rows.Count - 5));
+        for (var i = start; i < Math.Min(rows.Count, start + 5); i++)
+            builder.Append(i == session.Index ? $"<font color='orange'>&gt; {Html(rows[i])}</font><br>" : $"{Html(rows[i])}<br>");
+        builder.Append("W/S: navigate | E: select | R: back/close<br>");
+        if (session.Page == 1) builder.Append("A/D: switch CT / T<br>");
+        builder.Append(Html(session.Saving ? "Saving..." : session.Loading && session.Status == "" ? "Loading..." : session.Status));
+        builder.Append($"<br><b>{Html(Configs.GetConfigData().MenuFooter)}</b>");
+        return builder.ToString();
     }
 }

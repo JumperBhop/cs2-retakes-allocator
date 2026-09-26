@@ -397,7 +397,24 @@ public static class WeaponHelpers
 
     public static bool IsUsableWeapon(CsItem weapon)
     {
-        return Configs.GetConfigData().UsableWeapons.Contains(weapon);
+        var config = Configs.GetConfigData();
+        return config.UsableWeapons.Contains(weapon) && (weapon != CsItem.AWP || config.EnableAwp != 0);
+    }
+
+    public static bool IsWeaponAllowedForTeam(CsItem weapon, CsTeam team) =>
+        team is CsTeam.Terrorist or CsTeam.CounterTerrorist && IsUsableWeapon(weapon) &&
+        _validWeaponsByTeamAndAllocationType[team].Values.Any(items => items.Contains(weapon));
+
+    public static ICollection<CsItem> GetSharedPistols() => _allPistols.Where(IsUsableWeapon).ToList();
+
+    public static CsItem? GetSecondaryFallback(CsTeam team)
+    {
+        if (team is not (CsTeam.Terrorist or CsTeam.CounterTerrorist)) return null;
+        if (Configs.GetConfigData().SecondaryFallbackWeapons.TryGetValue(team, out var configured) &&
+            GetSlotTypeForItem(configured) == ItemSlotType.Secondary && IsWeaponAllowedForTeam(configured, team))
+            return configured;
+        return GetPossibleWeaponsForAllocationType(WeaponAllocationType.Secondary, team)
+            .Select(item => (CsItem?)item).FirstOrDefault();
     }
 
     public static CsItem? CoercePreferredTeam(CsItem? item, CsTeam team)
@@ -593,7 +610,7 @@ public static class WeaponHelpers
         return IsUsableWeapon(defaultWeapon.Value) ? defaultWeapon : null;
     }
 
-    private static CsItem GetRandomWeaponForAllocationType(WeaponAllocationType allocationType, CsTeam team)
+    private static CsItem? GetRandomWeaponForAllocationType(WeaponAllocationType allocationType, CsTeam team)
     {
         if (team != CsTeam.Terrorist && team != CsTeam.CounterTerrorist)
         {
@@ -609,7 +626,8 @@ public static class WeaponHelpers
             WeaponAllocationType.Preferred => team == CsTeam.Terrorist ? _preferredForT : _preferredForCt,
             _ => _sharedPistols,
         };
-        return Utils.Choice(collectionToCheck.Where(IsUsableWeapon).ToList());
+        var allowed = collectionToCheck.Where(IsUsableWeapon).ToList();
+        return allowed.Count == 0 ? null : Utils.Choice(allowed);
     }
 
     private static CsItem? GetWeaponForAllocationType(WeaponAllocationType allocationType, CsTeam team,
@@ -617,10 +635,20 @@ public static class WeaponHelpers
     {
         CsItem? weapon = null;
 
+        if (team is not (CsTeam.Terrorist or CsTeam.CounterTerrorist)) return null;
+        if (Configs.GetConfigData().SharedSecondaryPreference &&
+            allocationType is WeaponAllocationType.Secondary or WeaponAllocationType.PistolRound &&
+            Configs.GetConfigData().CanPlayersSelectWeapons())
+        {
+            var shared = userSetting?.GetSharedSecondaryPreference();
+            if (shared != null)
+                return IsWeaponAllowedForTeam(shared.Value, team) ? shared : GetSecondaryFallback(team);
+        }
+
         if (Configs.GetConfigData().CanPlayersSelectWeapons() && userSetting is not null)
         {
             var weaponPreference = userSetting.GetWeaponPreference(team, allocationType);
-            if (weaponPreference is not null && IsUsableWeapon(weaponPreference.Value))
+            if (weaponPreference is not null && IsWeaponAllowedForTeam(weaponPreference.Value, team))
             {
                 weapon = weaponPreference;
             }
@@ -636,6 +664,8 @@ public static class WeaponHelpers
             weapon = GetDefaultWeaponForAllocationType(allocationType, team);
         }
 
+        if (weapon == null && allocationType == WeaponAllocationType.Preferred)
+            return GetWeaponForAllocationType(WeaponAllocationType.FullBuyPrimary, team, userSetting);
         return weapon;
     }
 

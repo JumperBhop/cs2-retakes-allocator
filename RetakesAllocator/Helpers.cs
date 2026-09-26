@@ -162,12 +162,14 @@ public static class Helpers
         return removed;
     }
 
-    private static CCSGameRules? GetGameRules()
+    public static CCSGameRules? GetGameRules()
     {
         try
         {
             var gameRulesEntities = Utilities.FindAllEntitiesByDesignerName<CCSGameRulesProxy>("cs_gamerules");
-            return gameRulesEntities.First().GameRules;
+            var proxy = gameRulesEntities.FirstOrDefault();
+            var rules = proxy is { IsValid: true } ? proxy.GameRules : null;
+            return rules?.Handle != IntPtr.Zero ? rules : null;
         }
         catch
         {

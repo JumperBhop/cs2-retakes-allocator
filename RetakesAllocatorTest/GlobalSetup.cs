@@ -32,6 +32,8 @@ public abstract class BaseTestFixture
     public void GlobalSetup()
     {
         Configs.Load(".");
+        // Retain upstream behavior coverage; v301 tests explicitly enable the common preference.
+        Configs.GetConfigData().SharedSecondaryPreference = false;
         Queries.Wipe();
     }
 }

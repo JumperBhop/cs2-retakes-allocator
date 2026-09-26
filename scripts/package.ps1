@@ -1,6 +1,6 @@
 param(
     [string]$OutputDirectory,
-    [string]$Version = '2.4.2-jumper.1'
+    [string]$Version = '301'
 )
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
@@ -24,6 +24,8 @@ $nativeTarget = Join-Path $pluginTarget 'runtimes/linux-x64'
 New-Item -ItemType Directory -Path (Split-Path $nativeTarget -Parent) -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $OutputDirectory 'runtimes/linux-x64') -Destination $nativeTarget -Recurse
 Copy-Item -LiteralPath (Join-Path $repoRoot 'INSTALLATION-DE.md') -Destination $staging
+Copy-Item -LiteralPath (Join-Path $repoRoot 'TESTPLAN-301.md') -Destination $staging
+Copy-Item -LiteralPath (Join-Path $repoRoot 'CHANGELOG-301.md') -Destination $staging
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $pluginTarget 'LICENSE')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD-PARTY.md') -Destination (Join-Path $pluginTarget 'THIRD-PARTY.md')
 
