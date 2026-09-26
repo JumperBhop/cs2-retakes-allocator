@@ -27,6 +27,9 @@ public class AdvancedGunMenu
     }
     private readonly Dictionary<ulong, Session> _sessions = new();
     public bool IsOpen(CCSPlayerController player) => _sessions.ContainsKey(player.SteamID);
+    private static ulong ReadButtons(CCSPlayerController player) =>
+        player.Pawn.Value is { IsValid: true, MovementServices: { } movement }
+            ? movement.Buttons.ButtonStates[0] : 0;
 
     public void Open(CCSPlayerController player)
     {
@@ -37,7 +40,7 @@ public class AdvancedGunMenu
             Player = player,
             Team = player.Team == CsTeam.Terrorist ? CsTeam.Terrorist : CsTeam.CounterTerrorist
         };
-        session.Input.Initialize((ulong)player.Buttons);
+        session.Input.Initialize(ReadButtons(player));
         var id = player.SteamID;
         _sessions[id] = session;
         _ = Task.Run(() => LoadPreferencesAsync(id, session));
@@ -99,7 +102,7 @@ public class AdvancedGunMenu
                 _sessions.Remove(id);
                 continue;
             }
-            var pressed = (PlayerButtons)session.Input.RisingEdges((ulong)player.Buttons);
+            var pressed = (PlayerButtons)session.Input.RisingEdges(ReadButtons(player));
             if ((pressed & PlayerButtons.Reload) != 0)
             {
                 if (session.Page == 0) Close(player);
